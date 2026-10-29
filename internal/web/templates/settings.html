@@ -1,0 +1,47 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead"><h1>Mail-Vorlagen</h1></div>
+<div class="grid2 wide-left">
+<form class="card" method="post" action="/settings">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  {{range .Fields}}
+  <div class="tplfield">
+    <label>{{.Label}} {{if .Custom}}<span class="tag">angepasst</span>{{end}}
+      {{if .Multi}}<textarea name="{{.Key}}" rows="16" class="mono">{{.Value}}</textarea>{{else}}<input name="{{.Key}}" value="{{.Value}}">{{end}}
+    </label>
+    {{if .ErrorMsg}}<p class="hint err">{{.ErrorMsg}}</p>{{end}}
+    {{if .Custom}}<button class="btn ghost small" name="reset" value="{{.Key}}" formnovalidate data-confirm="Diese Vorlage auf den Standard zurücksetzen?">Auf Standard zurücksetzen</button>{{end}}
+  </div>
+  {{end}}
+  <button class="btn primary">Alle Vorlagen speichern</button>
+</form>
+<aside class="card explain">
+  <h2>Platzhalter</h2>
+  <p class="muted small">Go-Template-Syntax, z. B. <code>{{"{{.DisplayName}}"}}</code> oder <code>{{"{{if .AdminTodoDone}}…{{else}}…{{end}}"}}</code>.</p>
+  <dl class="kv small">
+    <dt>.CaseNumber</dt><dd>Fallnummer</dd>
+    <dt>.DisplayName / .GivenName</dt><dd>Name aus dem AD</dd>
+    <dt>.Username</dt><dd>sAMAccountName</dd>
+    <dt>.Email</dt><dd>Empfängeradresse</dd>
+    <dt>.Password</dt><dd>Kennwort im Klartext</dd>
+    <dt>.PasswordHint</dt><dd>Maske + Länge, z. B. „S••••••3 (8 Zeichen)“</dd>
+    <dt>.PolicyCompliant</dt><dd>true/false</dd>
+    <dt>.AdminTodoDone</dt><dd>AD-Maßnahme bereits erledigt</dd>
+    <dt>.Risk</dt><dd>Risikostufe</dd>
+    <dt>.Source / .LeakDate</dt><dd>Angaben vom SOC</dd>
+    <dt>.Date</dt><dd>heutiges Datum</dd>
+    <dt>.Actor</dt><dd>bearbeitender Admin</dd>
+    <dt>.ChecksSummary</dt><dd>Prüfergebnis (Text)</dd>
+    <dt>.PowerShell</dt><dd>PowerShell-Maßnahmen</dd>
+    <dt>.CaseURL</dt><dd>Link zum Fall</dd>
+    <dt>.Signature / .OrgName</dt><dd>aus der Konfiguration</dd>
+  </dl>
+  <h2>Konfiguration</h2>
+  <p class="small">Admin-Empfänger: {{if .Recipients}}{{.Recipients}}{{else}}<span class="muted">keine</span>{{end}}</p>
+  <p class="small">SMTP: {{if .MailEnabled}}konfiguriert{{else}}<span class="hint err">nicht konfiguriert</span>{{end}}</p>
+  <p class="small">Richtlinie: {{.Policy}}</p>
+  <p class="muted small">Diese Werte werden in <code>config.yaml</code> gepflegt.</p>
+</aside>
+</div>
+{{end}}
+{{end}}

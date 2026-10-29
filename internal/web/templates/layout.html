@@ -1,0 +1,34 @@
+{{define "layout"}}<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · LeakGuard</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12.5 11 14.5 15.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>LeakGuard</span></a>
+  {{if .Session}}
+  <nav>
+    <a href="/" {{if eq .Nav "list"}}class="active"{{end}}>Fälle</a>
+    <a href="/cases/new" {{if eq .Nav "new"}}class="active"{{end}}>Neuer Fall</a>
+    <a href="/settings" {{if eq .Nav "settings"}}class="active"{{end}}>Vorlagen</a>
+  </nav>
+  <form method="post" action="/logout" class="userbox">
+    <input type="hidden" name="csrf" value="{{.CSRF}}">
+    <span>{{.Session.Display}}</span>
+    <button class="btn ghost small">Abmelden</button>
+  </form>
+  {{end}}
+</header>
+<main>
+  {{if .Msg}}<div class="flash ok" role="status">{{.Msg}}</div>{{end}}
+  {{if .Err}}<div class="flash err" role="alert">{{.Err}}</div>{{end}}
+  {{template "content" .}}
+</main>
+<footer>LeakGuard {{.Version}}</footer>
+</body>
+</html>{{end}}

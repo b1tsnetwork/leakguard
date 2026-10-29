@@ -1,0 +1,54 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead"><h1>Neuer Fall</h1></div>
+<div class="grid2">
+<form class="card" method="post" action="/cases" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <label>Fallnummer (SOC) <span class="req">*</span>
+    <input name="case_number" value="{{.CaseNumber}}" required maxlength="100" autofocus placeholder="z. B. SOC-2026-1234">
+  </label>
+  <label>E-Mail-Adresse / Benutzername <span class="req">*</span>
+    <input name="identifier" value="{{.Identifier}}" required maxlength="256" placeholder="max.mustermann@firma.de, m.mustermann oder DOMAIN\m.mustermann">
+  </label>
+  <label>Geleaktes Kennwort <span class="req">*</span>
+    <span class="pwfield">
+      <input type="password" name="password" required maxlength="512" autocomplete="new-password" spellcheck="false" data-lpignore="true">
+      <button type="button" class="btn ghost small" data-toggle-pw>anzeigen</button>
+    </span>
+    <small class="muted">Wird verschlüsselt (AES-256-GCM) im Fall gespeichert und in der Oberfläche unscharf angezeigt.</small>
+  </label>
+  <div class="row2">
+    <label>Leak-Datum (optional)
+      <input type="date" name="leak_date" value="{{.LeakDate}}">
+      <small class="muted">Erlaubt den Abgleich mit „Kennwort zuletzt geändert“.</small>
+    </label>
+    <label>Quelle / Hinweis vom SOC (optional)
+      <input name="source" value="{{.Source}}" maxlength="500" placeholder="z. B. Combolist, Infostealer-Log, Dienst …">
+    </label>
+  </div>
+  {{if .BindTestAllowed}}
+  <label class="check">
+    <input type="checkbox" name="bind_test" value="1">
+    <span><b>Bind-Test:</b> prüfen, ob das Kennwort aktuell im AD gültig ist.<br>
+    <small class="muted">Ein Fehlversuch erhöht den Zähler für falsche Kennwörter (badPwdCount) und kann im SIEM als Anmeldefehler erscheinen.</small></span>
+  </label>
+  {{end}}
+  {{if not .LDAPEnabled}}<p class="hint warn">LDAP ist nicht konfiguriert – es wird nur die Kennwortrichtlinie geprüft.</p>{{end}}
+  <button class="btn primary">Prüfen &amp; Fall anlegen</button>
+</form>
+<aside class="card explain">
+  <h2>Ablauf</h2>
+  <ol>
+    <li>Konto im AD per LDAPS ermitteln (aktiv, gesperrt, privilegiert, Kennwort zuletzt gesetzt).</li>
+    <li>Kennwort gegen die Kennwortrichtlinie prüfen (Länge, Komplexität, Namensbestandteile, ggf. aus AD/PSO).</li>
+    <li>Optional: Abgleich mit Pwned Passwords (k-Anonymität) und Bind-Test.</li>
+    <li>Risiko bewerten und Maßnahmen vorschlagen.</li>
+  </ol>
+  <h2>Danach</h2>
+  <p><b>Richtlinie erfüllt:</b> Admin-ToDo mit PowerShell, Mail an Benutzer, Info an Admins.</p>
+  <p><b>Richtlinie nicht erfüllt:</b> Mail an Benutzer mit Hinweisen zu anderen Diensten.</p>
+  <p class="muted">Alle Mails werden erst nach Klick und mit Vorschau versendet.</p>
+</aside>
+</div>
+{{end}}
+{{end}}

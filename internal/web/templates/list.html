@@ -1,0 +1,71 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead">
+  <h1>Fälle</h1>
+  <div class="actions">
+    <a class="btn" href="/blocklist.txt" title="Wörterbuch-Datei für ADSelfService Plus">Sperrliste (.txt)</a>
+    <a class="btn" href="/export.csv?{{.Query}}">CSV-Export</a>
+    <a class="btn primary" href="/cases/new">+ Neuer Fall</a>
+  </div>
+</div>
+
+<div class="stats">
+  <a class="stat" href="/?status=offen"><b>{{.Stats.Open}}</b><span>offen</span></a>
+  <a class="stat" href="/?status=in_bearbeitung"><b>{{.Stats.InProgress}}</b><span>in Bearbeitung</span></a>
+  <div class="stat {{if .Stats.TodoOpen}}alert{{end}}"><b>{{.Stats.TodoOpen}}</b><span>Admin-ToDos offen</span></div>
+  <div class="stat"><b>{{.Stats.Last30}}</b><span>letzte 30 Tage</span></div>
+  <a class="stat" href="/?status=abgeschlossen"><b>{{.Stats.Closed}}</b><span>abgeschlossen</span></a>
+</div>
+
+<form class="filters" method="get" action="/">
+  <input type="search" name="q" value="{{.Filter.Query}}" placeholder="Fallnummer, Konto, Name, E-Mail …">
+  <select name="status">
+    <option value="">Alle Status</option>
+    {{range statuses}}<option value="{{.}}" {{if eq . $.Data.Filter.Status}}selected{{end}}>{{statusLabel .}}</option>{{end}}
+  </select>
+  <select name="risk">
+    <option value="">Alle Risiken</option>
+    {{range risks}}<option value="{{.}}" {{if eq . $.Data.Filter.Risk}}selected{{end}}>{{riskLabel .}}</option>{{end}}
+  </select>
+  <button class="btn">Filtern</button>
+  {{if or .Filter.Query .Filter.Status .Filter.Risk}}<a class="btn ghost" href="/">Zurücksetzen</a>{{end}}
+</form>
+
+{{if .Cases}}
+<div class="tablewrap">
+<table class="cases">
+  <thead><tr><th>Fall</th><th>Konto</th><th>Kennwort</th><th>Risiko</th><th>Maßnahmen</th><th>Status</th><th>Angelegt</th></tr></thead>
+  <tbody>
+  {{range .Cases}}
+  <tr data-href="/cases/{{.ID}}">
+    <td><a href="/cases/{{.ID}}"><b>{{.CaseNumber}}</b></a></td>
+    <td>{{if .Checks.User}}<b>{{.Checks.User.SAM}}</b><br><span class="muted">{{.DisplayName}}</span>{{else}}{{.Identifier}}<br><span class="muted">kein AD-Konto</span>{{end}}</td>
+    <td><code>{{.PwMask}}</code><br>{{if .Compliant}}<span class="tag warn">Richtlinie erfüllt</span>{{else}}<span class="tag">nicht konform</span>{{end}}</td>
+    <td><span class="risk risk-{{.Risk}}">{{riskLabel .Risk}}</span></td>
+    <td class="checks">
+      {{if .Checks.Actions.AdminTodo}}<span class="chk {{if .AdminTodoDone}}done{{end}}" title="Admin-ToDo">AD</span>{{end}}
+      {{if .Checks.Actions.UserMail}}<span class="chk {{if not .UserMailAt.IsZero}}done{{end}}" title="Mail an Benutzer">Nutzer</span>{{end}}
+      {{if .Checks.Actions.AdminMail}}<span class="chk {{if not .AdminMailAt.IsZero}}done{{end}}" title="Admin-Info">Admin</span>{{end}}
+    </td>
+    <td><span class="status status-{{.Status}}">{{statusLabel .Status}}</span></td>
+    <td>{{dt .CreatedAt}}<br><span class="muted">{{.CreatedBy}}</span></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+{{if gt .Pages 1}}
+<nav class="pager">
+  {{if gt .Page 1}}<a class="btn ghost" href="/?{{.Query}}&page={{sub .Page 1}}">← zurück</a>{{end}}
+  <span>Seite {{.Page}} von {{.Pages}} · {{.Total}} Fälle</span>
+  {{if lt .Page .Pages}}<a class="btn ghost" href="/?{{.Query}}&page={{add .Page 1}}">weiter →</a>{{end}}
+</nav>
+{{end}}
+{{else}}
+<div class="card empty">
+  <p>Keine Fälle gefunden.</p>
+  <a class="btn primary" href="/cases/new">Ersten Fall anlegen</a>
+</div>
+{{end}}
+{{end}}
+{{end}}

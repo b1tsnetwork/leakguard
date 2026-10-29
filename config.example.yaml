@@ -1,0 +1,94 @@
+# LeakGuard – Beispielkonfiguration
+# Geheimnisse können statt hier auch per Umgebungsvariable gesetzt werden:
+#   LEAKGUARD_SECRET, LEAKGUARD_LDAP_BIND_PASSWORD, LEAKGUARD_SMTP_PASSWORD, LEAKGUARD_DEV_ADMIN_HASH
+
+listen: ":8080"
+base_url: "https://leakguard.firma.local"   # für Links in Admin-Mails
+db_path: "data/leakguard.db"   # im Docker-Container: "/data/leakguard.db"
+
+# Mind. 32 zufällige Zeichen, z. B.: openssl rand -base64 48
+# Wird für den HMAC-Fingerabdruck der Kennwörter verwendet -> NICHT nachträglich ändern,
+# sonst funktioniert die Erkennung identischer Kennwörter über alte Fälle nicht mehr.
+secret: ""
+
+cookie_secure: true      # true, sobald LeakGuard per HTTPS erreichbar ist (Reverse-Proxy oder tls unten)
+trust_proxy: false       # X-Forwarded-For auswerten (nur hinter eigenem Reverse-Proxy)
+session_hours: 8
+
+# Optional direkt TLS terminieren (sonst Reverse-Proxy wie Caddy/nginx davor)
+tls:
+  cert_file: ""
+  key_file: ""
+
+ldap:
+  url: "ldaps://dc01.firma.local:636"
+  # ca_file: "/etc/leakguard/firma-root-ca.pem"   # Root-CA der DC-Zertifikate (wenn nicht im System-Store)
+  insecure_skip_verify: false
+  timeout_seconds: 10
+
+  # Lesekonto (normaler Domänenbenutzer genügt; für PSO-Auswertung Leserecht auf den Password Settings Container)
+  bind_dn: "CN=svc-leakguard,OU=Service,DC=firma,DC=local"
+  bind_password: ""
+
+  base_dn: "DC=firma,DC=local"
+  # domain_dn: "DC=firma,DC=local"   # Standard: aus base_dn abgeleitet
+
+  # Wer sich an LeakGuard anmelden darf (eine der Gruppen genügt)
+  admin_groups:
+    - "CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"
+  nested_groups: true   # verschachtelte Gruppen berücksichtigen (LDAP_MATCHING_RULE_IN_CHAIN)
+
+  # Gruppen, deren Mitglieder als privilegiert gelten (CN oder DN). Leer = Standard-AD-Admin-Gruppen (DE/EN).
+  # privileged_groups: ["Domain Admins", "Domänen-Admins", "Tier0-Admins"]
+
+  # Optionaler Bind-Test "Ist das geleakte Kennwort aktuell gültig?" im Fallformular anbieten.
+  # Achtung: Ein Fehlversuch zählt als falsche Anmeldung (badPwdCount) und erscheint im SIEM.
+  allow_bind_test: false
+
+  # Suchfilter: {q} = Eingabe aus dem Fallformular, {u} = Anmeldename
+  # user_filter: "(&(objectCategory=person)(objectClass=user)(|(sAMAccountName={q})(userPrincipalName={q})(mail={q})(proxyAddresses=smtp:{q})))"
+  # login_filter: "(&(objectCategory=person)(objectClass=user)(|(sAMAccountName={u})(userPrincipalName={u})))"
+
+policy:
+  # Mindestlänge/Komplexität zur Laufzeit aus dem AD lesen (Domänenrichtlinie bzw. PSO des Nutzers).
+  # Die folgenden Werte gelten als Fallback bzw. wenn read_from_ad: false.
+  read_from_ad: true
+  min_length: 12
+  complexity: true
+  min_categories: 3
+  # Nur befüllen, wenn diese Kennwörter auch im AD wirklich gesperrt sind (z. B. Entra Password Protection),
+  # sonst verfälscht das die Aussage "könnte das AD-Kennwort sein".
+  blocklist: []
+  blocklist_file: ""
+
+hibp:
+  # Abgleich mit Pwned Passwords per k-Anonymität (nur 5 Zeichen des SHA-1-Hashes verlassen das Netz).
+  # Proxy wird über HTTPS_PROXY berücksichtigt.
+  enabled: false
+  timeout_seconds: 8
+
+smtp:
+  host: "mail.firma.local"
+  port: 587
+  security: "starttls"   # starttls | tls | none (none nur für interne Relays)
+  username: ""
+  password: ""
+  insecure_skip_verify: false
+
+mail:
+  from: "IT-Sicherheit <it-sicherheit@firma.de>"
+  reply_to: "servicedesk@firma.de"
+  admin_recipients:
+    - "it-admins@firma.de"
+  user_bcc: []            # z. B. Ticket-System-Adresse für die Dokumentation
+  org_name: "IT-Abteilung"
+  signature: |
+    Mit freundlichen Grüßen
+    Ihre IT-Abteilung
+
+# Lokales Konto am AD vorbei – NUR für Entwicklung/Tests.
+# Hash erzeugen: leakguard hash-password
+dev_admin:
+  enabled: false
+  username: "devadmin"
+  password_hash: ""

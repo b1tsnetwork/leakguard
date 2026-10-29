@@ -1,0 +1,219 @@
+{{define "content"}}
+{{with .Data}}{{$c := .Case}}{{$u := $c.Checks.User}}
+<div class="pagehead">
+  <div>
+    <a class="back" href="/">← Fälle</a>
+    <h1>Fall {{$c.CaseNumber}} <span class="risk risk-{{$c.Risk}}">{{riskLabel $c.Risk}}</span> <span class="status status-{{$c.Status}}">{{statusLabel $c.Status}}</span></h1>
+    <p class="muted">Angelegt {{dt $c.CreatedAt}} von {{$c.CreatedBy}} · Kennung <code>{{$c.Identifier}}</code>{{if $c.Source}} · Quelle: {{$c.Source}}{{end}}{{if not $c.LeakDate.IsZero}} · Leak-Datum {{date $c.LeakDate}}{{end}}</p>
+  </div>
+  <form method="post" action="/cases/{{$c.ID}}/status" class="statusform">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    {{if ne $c.Status "abgeschlossen"}}
+      <input type="hidden" name="status" value="abgeschlossen">
+      <button class="btn {{if .AllDone}}primary{{end}}" {{if not .AllDone}}data-confirm="Es sind noch nicht alle empfohlenen Maßnahmen erledigt. Trotzdem abschließen?"{{end}}>Fall abschließen</button>
+    {{else}}
+      <input type="hidden" name="status" value="in_bearbeitung">
+      <button class="btn">Wieder öffnen</button>
+    {{end}}
+  </form>
+</div>
+
+<section class="card verdict verdict-{{$c.Risk}}">
+  <h2>Bewertung</h2>
+  <ul class="reasons">{{range $c.Checks.Reasons}}<li>{{.}}</li>{{end}}</ul>
+  {{range $c.Checks.Warnings}}<p class="hint warn">{{.}}</p>{{end}}
+  <div class="todo-overview">
+    {{with $c.Checks.Actions}}
+    {{if .AdminTodo}}<span class="chk {{if $c.AdminTodoDone}}done{{end}}">Admin-ToDo AD</span>{{end}}
+    {{if .UserMail}}<span class="chk {{if not $c.UserMailAt.IsZero}}done{{end}}">Mail an Benutzer</span>{{end}}
+    {{if .AdminMail}}<span class="chk {{if not $c.AdminMailAt.IsZero}}done{{end}}">Admin-Information</span>{{end}}
+    {{if not (or .AdminTodo .UserMail .AdminMail)}}<span class="muted">Keine automatischen Maßnahmen vorgeschlagen – bitte manuell bewerten.</span>{{end}}
+    {{end}}
+  </div>
+</section>
+
+<div class="grid2">
+<section class="card">
+  <h2>AD-Konto</h2>
+  {{if $u}}
+  <dl class="kv">
+    <dt>Konto</dt><dd><b>{{$u.SAM}}</b>{{if $u.UPN}} · {{$u.UPN}}{{end}}</dd>
+    <dt>Name</dt><dd>{{$u.DisplayName}}{{if $u.Title}} · {{$u.Title}}{{end}}{{if $u.Department}} · {{$u.Department}}{{end}}</dd>
+    <dt>E-Mail</dt><dd>{{if $u.Mail}}{{$u.Mail}}{{else}}<span class="muted">nicht gepflegt</span>{{end}}</dd>
+    <dt>Status</dt><dd>
+      {{if $u.Enabled}}<span class="tag ok">aktiv</span>{{else}}<span class="tag">deaktiviert</span>{{end}}
+      {{if $u.LockedOut}}<span class="tag warn">gesperrt (Lockout)</span>{{end}}
+      {{if $u.AccountExpired}}<span class="tag">abgelaufen</span>{{end}}
+      {{if $u.PasswordExpired}}<span class="tag">Kennwort abgelaufen</span>{{end}}
+      {{if $u.MustChangePassword}}<span class="tag ok">muss Kennwort ändern</span>{{end}}
+      {{if $u.PasswordNeverExpires}}<span class="tag warn">Kennwort läuft nie ab</span>{{end}}
+      {{if or $u.Privileged $u.AdminCount}}<span class="tag bad">privilegiert{{if $u.Privileged}}: {{join $u.Privileged ", "}}{{end}}</span>{{end}}
+    </dd>
+    <dt>Kennwort gesetzt</dt><dd>{{dt $u.PwdLastSet}} <span class="muted">{{ago $u.PwdLastSet}}</span>
+      {{if $c.Checks.PwdChangedAfterLeak}}{{if deref $c.Checks.PwdChangedAfterLeak}}<span class="tag ok">nach dem Leak geändert</span>{{else}}<span class="tag warn">vor dem Leak gesetzt</span>{{end}}{{end}}</dd>
+    <dt>Letzte Anmeldung</dt><dd>{{dt $u.LastLogon}} <span class="muted">(lastLogonTimestamp, ±14 Tage)</span></dd>
+    <dt>Angelegt</dt><dd>{{date $u.WhenCreated}}</dd>
+    <dt>DN</dt><dd><code class="small">{{$u.DN}}</code></dd>
+  </dl>
+  {{else if $c.Checks.Candidates}}
+  <p class="hint warn">Mehrere Konten passen zur Kennung. Bitte unten „Erneut prüfen“ mit dem richtigen Konto ausführen:</p>
+  <ul class="candidates">
+    {{range $c.Checks.Candidates}}<li><b>{{.SAM}}</b> – {{.DisplayName}} {{if not .Enabled}}<span class="tag">deaktiviert</span>{{end}} <button type="button" class="btn ghost small" data-fill-identifier="{{.SAM}}">übernehmen</button></li>{{end}}
+  </ul>
+  {{else}}
+  <p>Kein AD-Konto gefunden.{{if $c.Checks.LDAPError}} <span class="hint err">LDAP: {{$c.Checks.LDAPError}}</span>{{end}}</p>
+  <p class="muted">Möglicherweise eine private/externe Adresse, ein Alias ohne proxyAddresses-Eintrag oder ein bereits gelöschtes Konto.</p>
+  {{end}}
+</section>
+
+<section class="card">
+  <h2>Kennwort</h2>
+  <p class="pwline">{{if .Password}}<code class="big secret" tabindex="0" title="Zum Anzeigen überfahren oder klicken" data-secret>{{.Password}}</code>
+    <button type="button" class="btn ghost small" data-copy-secret>Kopieren</button>{{else}}<code class="big">{{$c.PwMask}}</code>{{end}}
+    <span class="muted">({{$c.PwLen}} Zeichen)</span>
+    {{if $c.Compliant}}<span class="tag warn">erfüllt Richtlinie</span>{{else}}<span class="tag">erfüllt Richtlinie nicht</span>{{end}}</p>
+  {{if .PasswordErr}}<p class="hint err">Gespeichertes Kennwort nicht lesbar: {{.PasswordErr}}</p>{{end}}
+  <p class="muted small">Richtlinie: {{$c.Checks.Policy.Source}}</p>
+  <ul class="findings">
+    {{range $c.Checks.Policy.Findings}}<li class="{{if .OK}}ok{{else}}fail{{end}}"><b>{{.Rule}}</b> – {{.Detail}}</li>{{end}}
+  </ul>
+  {{if $c.Checks.HIBPEnabled}}
+  <p>Pwned Passwords: {{if $c.Checks.HIBPError}}<span class="hint err">{{$c.Checks.HIBPError}}</span>{{else if $c.Checks.HIBPCount}}<span class="tag bad">{{$c.Checks.HIBPCount}}× bekannt</span>{{else}}<span class="tag ok">nicht bekannt</span>{{end}}</p>
+  {{end}}
+  {{if $c.Checks.BindTested}}
+  <p>Bind-Test: {{if $c.Checks.BindValid}}<span class="tag bad">{{$c.Checks.BindResult}}</span>{{else}}<span class="tag ok">{{$c.Checks.BindResult}}</span>{{end}}</p>
+  {{end}}
+  {{if $c.Checks.Recurrences}}
+  <h3>Frühere Fälle</h3>
+  <ul class="plain">
+    {{range $c.Checks.Recurrences}}<li><a href="/cases/{{.CaseID}}">{{.CaseNumber}}</a> vom {{date .CreatedAt}} {{if .SamePW}}<span class="tag warn">identisches Kennwort</span>{{else}}<span class="tag">gleiches Konto</span>{{end}}</li>{{end}}
+  </ul>
+  {{end}}
+</section>
+</div>
+
+<section class="card" id="sperrliste">
+  <div class="cardhead">
+    <h2>Sperrliste (ADSelfService Plus)</h2>
+    <a class="btn small" href="/blocklist.txt">Gesamte Sperrliste (.txt)</a>
+  </div>
+  {{with $c.Checks.Blocklist}}{{if .Words}}
+  <p class="muted small">Aus dem Kennwort abgeleitete Wortstämme – Leetspeak aufgelöst, Ziffern und Sonderzeichen entfernt, mindestens 4 Zeichen. Für die Wörterbuch-Regel („Dictionary“): ein Eintrag pro Zeile.</p>
+  <div class="codewrap"><button type="button" class="btn small copy" data-copy>Kopieren</button><pre><code>{{join .Words "\n"}}</code></pre></div>
+  <details class="snippet">
+    <summary>Regex-Varianten</summary>
+    <p class="muted small">Leetspeak-tolerantes Suchmuster dieses Falls:</p>
+    <div class="codewrap"><button type="button" class="btn small copy" data-copy>Kopieren</button><pre><code>(?i){{.Regex}}</code></pre></div>
+    <p class="muted small">Als „muss passen“-Regel (Kennwort darf die Stämme nicht enthalten), nur dieser Fall:</p>
+    <div class="codewrap"><button type="button" class="btn small copy" data-copy>Kopieren</button><pre><code>{{$.Data.DenyRegex}}</code></pre></div>
+    <p class="muted small">Für alle Fälle zusammen: <a href="/blocklist.txt?format=regex">Regex aller Fälle herunterladen</a>.</p>
+  </details>
+  {{else}}
+  <p class="muted">Kein verwertbarer Wortstamm (≥ 4 Buchstaben) im Kennwort – Sperrliste nicht sinnvoll. Für reine Zahlen/Zeichenfolgen helfen die Muster-Regeln (Tastaturfolgen, Wiederholungen) bzw. der Pwned-Passwords-Abgleich.</p>
+  {{end}}{{end}}
+</section>
+
+{{if .Snippets}}
+<section class="card" id="todo">
+  <div class="cardhead">
+    <h2>Admin-ToDo: Active Directory {{if not $c.Checks.Actions.AdminTodo}}<span class="muted small">(nicht zwingend empfohlen)</span>{{end}}</h2>
+    {{if $c.AdminTodoDone}}<span class="tag ok">erledigt {{dt $c.AdminTodoAt}} von {{$c.AdminTodoBy}}</span>{{end}}
+  </div>
+  <div class="snippets">
+  {{range .Snippets}}
+    <details class="snippet" {{if eq .Title "Kennwortänderung erzwingen"}}open{{end}}>
+      <summary>{{.Title}}</summary>
+      <p class="muted small">{{.Hint}}</p>
+      <div class="codewrap"><button type="button" class="btn small copy" data-copy>Kopieren</button><pre><code>{{.Code}}</code></pre></div>
+    </details>
+  {{end}}
+  </div>
+  <form method="post" action="/cases/{{$c.ID}}/todo" class="inline">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    {{if $c.AdminTodoDone}}
+      <input type="hidden" name="done" value="0"><button class="btn ghost">ToDo wieder öffnen</button>
+    {{else}}
+      <input type="hidden" name="done" value="1">
+      <select name="action">
+        <option>Kennwortänderung erzwungen</option>
+        <option>Kennwort zurückgesetzt</option>
+        <option>Konto deaktiviert</option>
+        <option>Keine Maßnahme nötig</option>
+      </select>
+      <button class="btn primary">Als erledigt markieren</button>
+    {{end}}
+  </form>
+</section>
+{{end}}
+
+<div class="grid2">
+<section class="card" id="usermail">
+  <div class="cardhead">
+    <h2>E-Mail an Benutzer</h2>
+    {{if not $c.UserMailAt.IsZero}}<span class="tag ok">versendet {{dt $c.UserMailAt}} von {{$c.UserMailBy}}</span>{{end}}
+  </div>
+  <p class="muted small">Vorlage: {{.UserMail.Template}}{{if and $c.Checks.Actions.AdminTodo (not $c.AdminTodoDone)}} · Tipp: erst das Admin-ToDo erledigen, dann passt der Text („haben wir eingestellt“).{{end}}</p>
+  {{if .UserMail.Err}}<p class="hint err">{{.UserMail.Err}}</p>{{end}}
+  <form method="post" action="/cases/{{$c.ID}}/mail/user">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>An<input name="to" value="{{.UserMail.To}}" required></label>
+    <label>Betreff<input name="subject" value="{{.UserMail.Subject}}" required></label>
+    <label>Text <span class="muted small">(enthält das Kennwort – zum Lesen überfahren oder hineinklicken)</span><textarea name="body" rows="18" required class="secret-area">{{.UserMail.Body}}</textarea></label>
+    <button class="btn {{if $c.Checks.Actions.UserMail}}primary{{end}}" {{if not .MailEnabled}}disabled title="SMTP nicht konfiguriert"{{end}}
+      data-confirm="E-Mail jetzt an den Benutzer senden?">{{if $c.UserMailAt.IsZero}}Senden{{else}}Erneut senden{{end}}</button>
+  </form>
+</section>
+
+<section class="card" id="adminmail">
+  <div class="cardhead">
+    <h2>Information an Admins</h2>
+    {{if not $c.AdminMailAt.IsZero}}<span class="tag ok">versendet {{dt $c.AdminMailAt}} von {{$c.AdminMailBy}}</span>{{end}}
+  </div>
+  {{if .AdminMail.Err}}<p class="hint err">{{.AdminMail.Err}}</p>{{end}}
+  <form method="post" action="/cases/{{$c.ID}}/mail/admin">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>An<input name="to" value="{{.AdminMail.To}}" required></label>
+    <label>Betreff<input name="subject" value="{{.AdminMail.Subject}}" required></label>
+    <label>Text<textarea name="body" rows="18" required class="mono">{{.AdminMail.Body}}</textarea></label>
+    <button class="btn {{if $c.Checks.Actions.AdminMail}}primary{{end}}" {{if not .MailEnabled}}disabled title="SMTP nicht konfiguriert"{{end}}
+      data-confirm="Admin-Information jetzt senden?">{{if $c.AdminMailAt.IsZero}}Senden{{else}}Erneut senden{{end}}</button>
+  </form>
+</section>
+</div>
+
+<div class="grid2">
+<section class="card" id="verlauf">
+  <h2>Verlauf</h2>
+  <ol class="timeline">
+    {{range .Events}}
+    <li class="ev ev-{{.Kind}}">
+      <div class="evhead"><time>{{dt .At}}</time> · <b>{{.Actor}}</b></div>
+      <div class="evmsg">{{.Message}}</div>
+      {{if .Detail}}<details><summary>Details</summary><pre>{{.Detail}}</pre></details>{{end}}
+    </li>
+    {{end}}
+  </ol>
+  <form method="post" action="/cases/{{$c.ID}}/note">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>Notiz hinzufügen<textarea name="note" rows="3" placeholder="z. B. Rückmeldung des Benutzers, Rücksprache mit SOC …"></textarea></label>
+    <button class="btn">Notiz speichern</button>
+  </form>
+</section>
+
+<section class="card" id="recheck">
+  <h2>Erneut prüfen</h2>
+  <p class="muted small">Ohne Eingabe wird das gespeicherte Kennwort verwendet. Ein neu eingegebenes Kennwort ersetzt das gespeicherte (wird im Verlauf vermerkt).</p>
+  <form method="post" action="/cases/{{$c.ID}}/recheck" autocomplete="off">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>E-Mail-Adresse / Benutzername<input name="identifier" id="recheck-identifier" value="{{$c.Identifier}}"></label>
+    <label>Geleaktes Kennwort
+      <span class="pwfield"><input type="password" name="password" autocomplete="new-password" data-lpignore="true" placeholder="leer = gespeichertes Kennwort">
+      <button type="button" class="btn ghost small" data-toggle-pw>anzeigen</button></span>
+    </label>
+    {{if .BindTestAllowed}}<label class="check"><input type="checkbox" name="bind_test" value="1"><span>Bind-Test durchführen <small class="muted">(erhöht badPwdCount bei Fehlschlag)</small></span></label>{{end}}
+    <button class="btn">Erneut prüfen</button>
+  </form>
+</section>
+</div>
+{{end}}
+{{end}}

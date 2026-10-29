@@ -1,0 +1,17 @@
+{{define "content"}}
+<section class="login card">
+  <h1>Anmeldung</h1>
+  <p class="muted">{{if .Data.LDAP}}Mit Ihrem Active-Directory-Konto anmelden.{{else}}LDAP ist nicht konfiguriert – nur lokales Entwicklerkonto.{{end}}</p>
+  <form method="post" action="/login" autocomplete="on">
+    <input type="hidden" name="csrf" value="{{.Data.PreCSRF}}">
+    <label>Benutzername
+      <input name="username" value="{{.Data.Username}}" autocomplete="username" required autofocus>
+    </label>
+    <label>Kennwort
+      <input type="password" name="password" autocomplete="current-password" required>
+    </label>
+    <button class="btn primary block">Anmelden</button>
+  </form>
+  {{if .Data.Dev}}<p class="hint warn">Lokales Entwicklerkonto ist aktiv – in Produktion <code>dev_admin.enabled: false</code> setzen.</p>{{end}}
+</section>
+{{end}}

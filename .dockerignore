@@ -1,0 +1,9 @@
+.git
+.github
+data
+*.db
+*.db-*
+config.yaml
+docker-compose.yml
+*.png
+*.md
