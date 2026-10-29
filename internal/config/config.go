@@ -24,12 +24,14 @@ type Config struct {
 	SessionHours int    `yaml:"session_hours"`
 	TrustProxy   bool   `yaml:"trust_proxy"`
 	TLS          TLS    `yaml:"tls"`
+	base         string // Verzeichnis der Konfigurationsdatei
 
 	LDAP     LDAP     `yaml:"ldap"`
 	SMTP     SMTP     `yaml:"smtp"`
 	Mail     Mail     `yaml:"mail"`
 	Policy   Policy   `yaml:"policy"`
 	HIBP     HIBP     `yaml:"hibp"`
+	ADSSP    ADSSP    `yaml:"adssp"`
 	DevAdmin DevAdmin `yaml:"dev_admin"`
 }
 
@@ -161,6 +163,7 @@ func Load(path string) (*Config, error) {
 	cfg.applyEnv()
 	cfg.applyDefaults()
 	cfg.resolvePaths(filepath.Dir(path))
+	cfg.base = filepath.Dir(path)
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
@@ -270,6 +273,7 @@ func (c *Config) validate() error {
 	if c.DevAdmin.Enabled && (c.DevAdmin.Username == "" || c.DevAdmin.PasswordHash == "") {
 		errs = append(errs, "dev_admin benötigt username und password_hash")
 	}
+	errs = append(errs, c.ADSSP.validate(c.base)...)
 	if len(errs) > 0 {
 		return errors.New("ungültige konfiguration:\n  - " + strings.Join(errs, "\n  - "))
 	}

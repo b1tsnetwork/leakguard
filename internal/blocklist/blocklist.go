@@ -72,6 +72,19 @@ func Derive(pw string) Pattern {
 	return p
 }
 
+// Normalize liefert das Kennwort klein geschrieben mit aufgelöstem Leetspeak ("P@ssw0rd" -> "password").
+func Normalize(pw string) string {
+	runes := []rune(strings.ToLower(pw))
+	out := make([]rune, len(runes))
+	for i, r := range runes {
+		out[i] = r
+		if m, ok := leet[r]; ok && neighbourIsLetter(runes, i) {
+			out[i] = m
+		}
+	}
+	return string(out)
+}
+
 // neighbourIsLetter: Ein Leet-Zeichen zählt nur als Buchstabe, wenn es zwischen zwei Buchstaben
 // steht ("H3rbst") oder ein Wort einleitet ("@pfel"). Ein "!" am Wortende bleibt Sonderzeichen.
 func neighbourIsLetter(r []rune, i int) bool {

@@ -117,7 +117,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	c := &model.Case{CaseNumber: nd.CaseNumber, CreatedBy: se.Username, Identifier: nd.Identifier, Source: nd.Source,
 		LeakDate: leak, PwMask: policy.Mask(pw), PwLen: utf8.RuneCountInString(pw), PwHMAC: s.engine.HMAC(pw),
-		Compliant: checks.Policy.Compliant, Risk: checks.Risk, Checks: checks}
+		Compliant: checks.PossibleADPassword, Risk: checks.Risk, Checks: checks}
 	if c.PwEnc, err = s.engine.EncryptPassword(pw); err != nil {
 		s.fail(w, r, 500, "Kennwort konnte nicht verschlüsselt werden: "+err.Error())
 		return
@@ -261,7 +261,7 @@ func (s *Server) handleRecheck(w http.ResponseWriter, r *http.Request) {
 		LeakDate: c.LeakDate, BindTest: r.FormValue("bind_test") == "1", Actor: se.Username}
 	samePW := s.engine.HMAC(pw) == c.PwHMAC
 	c.Checks = s.engine.Run(r.Context(), in, c.ID)
-	c.Compliant, c.Risk = c.Checks.Policy.Compliant, c.Checks.Risk
+	c.Compliant, c.Risk = c.Checks.PossibleADPassword, c.Checks.Risk
 	c.PwMask, c.PwLen, c.PwHMAC = policy.Mask(pw), utf8.RuneCountInString(pw), s.engine.HMAC(pw)
 	if enc, err := s.engine.EncryptPassword(pw); err == nil {
 		c.PwEnc = enc
@@ -478,6 +478,17 @@ func (s *Server) settingsData(r *http.Request) settingsData {
 	pol := fmt.Sprintf("Mindestlänge %d, Komplexität %s (≥ %d Kategorien)", s.cfg.Policy.MinLength, yn(s.cfg.Policy.Complexity), s.cfg.Policy.MinCategories)
 	if s.cfg.Policy.ReadFromAD {
 		pol += " – wird zur Laufzeit aus dem AD gelesen (Domänenrichtlinie / PSO)"
+	}
+	if s.cfg.ADSSP.Enabled {
+		var names []string
+		for _, p := range s.cfg.ADSSP.Policies {
+			n := p.Name
+			if p.NativeEnforcement {
+				n += " (nativ)"
+			}
+			names = append(names, n)
+		}
+		pol += " · ADSelfService Plus: " + strings.Join(names, ", ")
 	}
 	return settingsData{Fields: fields, Recipients: strings.Join(s.cfg.Mail.AdminRecipients, ", "), MailEnabled: s.mailer.Enabled(), Policy: pol}
 }

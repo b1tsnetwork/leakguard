@@ -40,7 +40,7 @@
   <tr data-href="/cases/{{.ID}}">
     <td><a href="/cases/{{.ID}}"><b>{{.CaseNumber}}</b></a></td>
     <td>{{if .Checks.User}}<b>{{.Checks.User.SAM}}</b><br><span class="muted">{{.DisplayName}}</span>{{else}}{{.Identifier}}<br><span class="muted">kein AD-Konto</span>{{end}}</td>
-    <td><code>{{.PwMask}}</code><br>{{if .Compliant}}<span class="tag warn">Richtlinie erfüllt</span>{{else}}<span class="tag">nicht konform</span>{{end}}</td>
+    <td><code>{{.PwMask}}</code><br>{{if .Compliant}}<span class="tag warn">AD-Kennwort möglich</span>{{else}}<span class="tag">nicht möglich</span>{{end}}</td>
     <td><span class="risk risk-{{.Risk}}">{{riskLabel .Risk}}</span></td>
     <td class="checks">
       {{if .Checks.Actions.AdminTodo}}<span class="chk {{if .AdminTodoDone}}done{{end}}" title="Admin-ToDo">AD</span>{{end}}

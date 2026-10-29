@@ -33,3 +33,22 @@ func TestLoadCreatesExampleAndResolvesPaths(t *testing.T) {
 		t.Fatalf("db_path nicht relativ zur Konfiguration: %s", cfg.DBPath)
 	}
 }
+
+func TestADSSPExampleParses(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	ex := strings.Replace(exampleConfig, "adssp:\n  enabled: false", "adssp:\n  enabled: true", 1)
+	ex = strings.Replace(ex, `secret: ""`, `secret: "`+strings.Repeat("s", 40)+`"`, 1)
+	if err := os.WriteFile(p, []byte(ex), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEAKGUARD_LDAP_BIND_PASSWORD", "x")
+	cfg, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol := cfg.ADSSP.Policies[0]
+	if !cfg.ADSSP.Enabled || pol.MinLength != 12 || pol.Rules.KeyboardSequence.Value != 4 || !pol.Rules.Palindrome.Active() || pol.ActiveSinceTime().IsZero() {
+		t.Fatalf("Beispiel falsch geparst: %+v", pol)
+	}
+}

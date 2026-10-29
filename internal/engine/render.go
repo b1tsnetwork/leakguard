@@ -192,6 +192,18 @@ func Summary(c *model.Case) string {
 		}
 		fmt.Fprintf(&b, "  [%s] %s: %s\n", mark, f.Rule, f.Detail)
 	}
+	if a := c.Checks.ADSSP; a != nil {
+		fmt.Fprintf(&b, "  ADSelfService Plus %q: %s (%d/%d Komplexitätsregeln%s)\n", a.Policy,
+			map[bool]string{true: "erfüllt", false: "NICHT erfüllt"}[a.Compliant], a.Satisfied, a.Required,
+			map[bool]string{true: ", durch Länge aufgehoben", false: ""}[a.Overridden])
+		for _, f := range a.Findings {
+			mark := "OK  "
+			if !f.OK {
+				mark = "FAIL"
+			}
+			fmt.Fprintf(&b, "    [%s] %s: %s\n", mark, f.Rule, f.Detail)
+		}
+	}
 	if u := c.Checks.User; u != nil {
 		fmt.Fprintf(&b, "  Konto aktiv: %s | gesperrt: %s | Kennwort zuletzt gesetzt: %s | letzte Anmeldung: %s\n",
 			yn(u.Enabled), yn(u.LockedOut), fmtT(u.PwdLastSet), fmtT(u.LastLogon))

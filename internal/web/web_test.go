@@ -45,6 +45,8 @@ func TestCasePageWithADUser(t *testing.T) {
 			Reasons: []string{"Privilegiertes Konto"},
 			Actions: model.Actions{AdminTodo: true, UserMail: true, AdminMail: true}}}
 	c.PwEnc, _ = eng.EncryptPassword("Wagner-Laub2026")
+	c.Checks.ADSSP = &model.ADSSPResult{Policy: "Standard", Compliant: false, Decisive: true, Native: true, ActiveSince: time.Now(),
+		Satisfied: 2, Required: 3, Total: 4, Findings: []model.Finding{{Rule: "Tastaturfolgen", OK: false, Detail: "enthält qwer", Mandatory: true}}}
 	c.Checks.Blocklist = model.BlockPattern{Words: []string{"wagner", "laub"}, Regex: "x"}
 	if err := st.CreateCase(ctx, c); err != nil {
 		t.Fatal(err)
@@ -67,7 +69,7 @@ func TestCasePageWithADUser(t *testing.T) {
 	}
 	for _, want := range []string{"Kennwortänderung erzwingen", "Set-ADUser -Identity &#39;pat&#39; -ChangePasswordAtLogon $true",
 		"Revoke-MgUserSignInSession", "Hallo Pat,", "privilegiert: Domain Admins", "</html>",
-		`data-secret>Wagner-Laub2026</code>`, "Betroffenes Kennwort: Wagner-Laub2026", "Sperrliste (ADSelfService Plus)"} {
+		`data-secret>Wagner-Laub2026</code>`, "Betroffenes Kennwort: Wagner-Laub2026", "Sperrliste (ADSelfService Plus)", "ADSelfService Plus: Standard", "schließt AD-Kennwort aus"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("Fallseite enthält nicht %q", want)
 		}

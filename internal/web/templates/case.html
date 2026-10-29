@@ -71,12 +71,21 @@
   <p class="pwline">{{if .Password}}<code class="big secret" tabindex="0" title="Zum Anzeigen überfahren oder klicken" data-secret>{{.Password}}</code>
     <button type="button" class="btn ghost small" data-copy-secret>Kopieren</button>{{else}}<code class="big">{{$c.PwMask}}</code>{{end}}
     <span class="muted">({{$c.PwLen}} Zeichen)</span>
-    {{if $c.Compliant}}<span class="tag warn">erfüllt Richtlinie</span>{{else}}<span class="tag">erfüllt Richtlinie nicht</span>{{end}}</p>
+    {{if $c.Compliant}}<span class="tag warn">als AD-Kennwort möglich</span>{{else}}<span class="tag">kein mögliches AD-Kennwort</span>{{end}}</p>
   {{if .PasswordErr}}<p class="hint err">Gespeichertes Kennwort nicht lesbar: {{.PasswordErr}}</p>{{end}}
-  <p class="muted small">Richtlinie: {{$c.Checks.Policy.Source}}</p>
+  <h3>AD-Richtlinie <span class="muted small">({{$c.Checks.Policy.Source}})</span></h3>
   <ul class="findings">
     {{range $c.Checks.Policy.Findings}}<li class="{{if .OK}}ok{{else}}fail{{end}}"><b>{{.Rule}}</b> – {{.Detail}}</li>{{end}}
   </ul>
+  {{with $c.Checks.ADSSP}}
+  <h3>ADSelfService Plus: {{.Policy}}
+    {{if .Compliant}}<span class="tag warn">erfüllt</span>{{else if .Decisive}}<span class="tag ok">nicht erfüllt – schließt AD-Kennwort aus</span>{{else}}<span class="tag">nicht erfüllt</span>{{end}}</h3>
+  <p class="muted small">Komplexität: {{.Satisfied}} von {{.Total}} Regeln erfüllt, gefordert {{.Required}}{{if .Overridden}} – durch Kennwortlänge aufgehoben{{end}}
+    · nativ durchgesetzt: {{if .Native}}ja{{else}}nein{{end}}{{if not .ActiveSince.IsZero}} · aktiv seit {{date .ActiveSince}}{{end}}{{if .Note}} · {{.Note}}{{end}}</p>
+  <ul class="findings">
+    {{range .Findings}}<li class="{{if .OK}}ok{{else}}fail{{end}}"><b>{{.Rule}}</b>{{if .Mandatory}} <span class="tag">Pflicht</span>{{end}} – {{.Detail}}</li>{{end}}
+  </ul>
+  {{end}}
   {{if $c.Checks.HIBPEnabled}}
   <p>Pwned Passwords: {{if $c.Checks.HIBPError}}<span class="hint err">{{$c.Checks.HIBPError}}</span>{{else if $c.Checks.HIBPCount}}<span class="tag bad">{{$c.Checks.HIBPCount}}× bekannt</span>{{else}}<span class="tag ok">nicht bekannt</span>{{end}}</p>
   {{end}}

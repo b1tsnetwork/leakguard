@@ -79,3 +79,30 @@ func TestPasswordCrypto(t *testing.T) {
 		t.Fatal("falscher Schlüssel darf nicht entschlüsseln")
 	}
 }
+
+func TestAssessADSSP(t *testing.T) {
+	since := time.Now().AddDate(0, -6, 0)
+	u := &model.ADUser{SAM: "mmuster", Enabled: true, PwdLastSet: time.Now().AddDate(0, -1, 0)}
+	violated := func(native bool, s time.Time) *model.ADSSPResult {
+		return &model.ADSSPResult{Policy: "Standard", Compliant: false, Native: native, ActiveSince: s}
+	}
+
+	// nativ durchgesetzt + Kennwort nach Aktivierung gesetzt -> kann nicht das AD-Kennwort sein
+	ch := model.Checks{User: u, Policy: model.PolicyResult{Compliant: true}, ADSSP: violated(true, since)}
+	assess(&ch, Input{})
+	if ch.PossibleADPassword || ch.Risk != model.RiskLow || ch.Actions.AdminTodo || !ch.ADSSP.Decisive {
+		t.Fatalf("entscheidend: %+v", ch)
+	}
+	// nicht nativ durchgesetzt -> weiterhin möglich
+	ch = model.Checks{User: u, Policy: model.PolicyResult{Compliant: true}, ADSSP: violated(false, since)}
+	assess(&ch, Input{})
+	if !ch.PossibleADPassword || ch.Risk != model.RiskHigh {
+		t.Fatalf("nicht nativ: %+v", ch)
+	}
+	// Kennwort vor Aktivierung gesetzt -> weiterhin möglich
+	ch = model.Checks{User: u, Policy: model.PolicyResult{Compliant: true}, ADSSP: violated(true, time.Now())}
+	assess(&ch, Input{})
+	if !ch.PossibleADPassword || ch.Risk != model.RiskHigh {
+		t.Fatalf("vor Aktivierung: %+v", ch)
+	}
+}

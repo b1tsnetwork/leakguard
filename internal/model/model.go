@@ -54,9 +54,25 @@ func (u *ADUser) Name() string {
 }
 
 type Finding struct {
-	Rule   string `json:"rule"`
-	OK     bool   `json:"ok"`
-	Detail string `json:"detail"`
+	Rule      string `json:"rule"`
+	OK        bool   `json:"ok"`
+	Detail    string `json:"detail"`
+	Mandatory bool   `json:"mandatory,omitempty"`
+}
+
+// ADSSPResult ist das Ergebnis der Prüfung gegen eine ManageEngine-ADSelfService-Plus-Richtlinie.
+type ADSSPResult struct {
+	Policy      string    `json:"policy"`
+	Compliant   bool      `json:"compliant"`
+	Findings    []Finding `json:"findings"`
+	Satisfied   int       `json:"satisfied"`  // erfüllte Komplexitätsregeln
+	Required    int       `json:"required"`   // geforderte Anzahl
+	Total       int       `json:"total"`      // Anzahl Komplexitätsregeln
+	Overridden  bool      `json:"overridden"` // Komplexität durch Länge aufgehoben
+	ActiveSince time.Time `json:"active_since"`
+	Native      bool      `json:"native"`
+	Decisive    bool      `json:"decisive"` // Verstoß schließt aktuelles AD-Kennwort aus
+	Note        string    `json:"note,omitempty"`
 }
 
 type PolicyResult struct {
@@ -102,10 +118,13 @@ type Checks struct {
 	PwdChangedAfterLeak *bool        `json:"pwd_changed_after_leak,omitempty"`
 	Recurrences         []Recurrence `json:"recurrences,omitempty"`
 	Blocklist           BlockPattern `json:"blocklist"`
-	Risk                string       `json:"risk"`
-	Reasons             []string     `json:"reasons"`
-	Warnings            []string     `json:"warnings,omitempty"`
-	Actions             Actions      `json:"actions"`
+	ADSSP               *ADSSPResult `json:"adssp,omitempty"`
+	// PossibleADPassword: Kennwort kann nach allen Regeln das aktuelle AD-Kennwort sein.
+	PossibleADPassword bool     `json:"possible_ad_password"`
+	Risk               string   `json:"risk"`
+	Reasons            []string `json:"reasons"`
+	Warnings           []string `json:"warnings,omitempty"`
+	Actions            Actions  `json:"actions"`
 }
 
 type Case struct {

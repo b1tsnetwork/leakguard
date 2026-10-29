@@ -63,6 +63,68 @@ policy:
   blocklist: []
   blocklist_file: ""
 
+# ManageEngine ADSelfService Plus – "Password Policy Enforcer"
+# ADSSP speichert seine Regeln in der eigenen Datenbank (nicht im AD) – deshalb hier nachpflegen.
+# Ein Verstoß gilt nur dann als Beweis "kann nicht das aktuelle AD-Kennwort sein", wenn
+# native_enforcement: true UND das Kennwort laut pwdLastSet nach active_since gesetzt wurde.
+#
+# Regel-Schreibweisen:
+#   min_uppercase: 1                              -> Komplexitätsanforderung (zählt zu satisfy_at_least)
+#   min_uppercase: {value: 1, mandatory: true}    -> Pflicht (muss immer erfüllt sein)
+#   Alle anderen Regeln (max_*, Wiederholung, Muster …) sind Pflicht;
+#   mit {…, complexity: true} zählen sie stattdessen zu satisfy_at_least.
+#   palindrome: true / dictionary: "datei.txt" / regex: "^...$"
+#   Auskommentiert oder weggelassen = Regel aus.
+adssp:
+  enabled: false
+  policies:                      # erste passende Richtlinie gewinnt
+    - name: "Standard"
+      apply_to:                  # leer = gilt für alle Konten
+        ous: []                  # z. B. "OU=Benutzer,DC=firma,DC=local" (inkl. Unter-OUs)
+        groups: []               # z. B. "CN=GG-Mitarbeiter,OU=Gruppen,DC=firma,DC=local" (verschachtelt, wenn ldap.nested_groups)
+      active_since: "2026-10-01"           # Aktivierungsdatum der Richtlinie
+      native_enforcement: true             # "Enforce this policy in GINA/CP (Ctrl+Alt+Del) screen and ADUC ... Password Sync Agent"
+
+      # Länge (immer Pflicht)
+      min_length: 12
+      max_length: 0                        # 0 = keine Obergrenze
+
+      # Komplexität
+      satisfy_at_least: 3                  # "Password must satisfy at least <n> of the above complexity requirements" (0 = alle)
+      override_complexity_if_length_at_least: 20   # "Override all complexity rules if password length is at least <n>" (0 = aus)
+
+      rules:
+        # --- Zeichen (Mindestanzahl) ---
+        min_uppercase: 1
+        min_lowercase: 1
+        # min_letters: 2                   # Buchstaben insgesamt
+        min_numeric: 1
+        min_special: 1
+        # min_unicode: 1                   # Nicht-ASCII-Buchstaben (ä, ß, é …)
+
+        # --- Zeichen einschränken (Höchstanzahl, 0 = verboten) ---
+        # max_numeric: 6
+        # max_special: 4
+        # max_unicode: 0                   # 0 = Unicode-Zeichen verboten
+        # disallowed_characters: " <>&\""    # diese Zeichen sind verboten
+        # must_not_start_with: "numeric,special"   # Klassen: numeric, special, unicode, uppercase, lowercase
+        # must_not_end_with: "numeric"
+
+        # --- Wiederholung ---
+        max_repeated_characters: 2          # höchstens 2 gleiche Zeichen hintereinander ("aaa" verboten)
+        max_username_sequence: 3            # keine 3 Zeichen am Stück aus dem Benutzernamen
+        # no_username: true                  # Benutzername komplett enthalten
+        # no_display_name: true              # Namensbestandteile ≥ 3 Zeichen
+
+        # --- Muster ---
+        keyboard_sequence: 4   # keine Folge ab 4 Zeichen: qwertz/qwerty/asdf, abcd, 1234, Ziffernblock – auch rückwärts
+        # dictionary: {text: "woerterbuch.txt", value: 4}   # Datei relativ zu dieser Config, ein Wort pro Zeile; value = Mindestwortlänge
+        palindrome: true
+        # regex: "^(?!.*(?i:firma)).*$"      # muss passen (Java/.NET-Syntax, Lookahead erlaubt)
+
+        # --- Kompromittierte Kennwörter (Have I Been Pwned, benötigt hibp.enabled: true) ---
+        # pwned: true
+
 hibp:
   # Abgleich mit Pwned Passwords per k-Anonymität (nur 5 Zeichen des SHA-1-Hashes verlassen das Netz).
   # Proxy wird über HTTPS_PROXY berücksichtigt.

@@ -172,6 +172,16 @@ func (c *Client) Authenticate(username, password string) (string, string, error)
 	return sam, disp, nil
 }
 
+// MemberOfAny prüft, ob das Konto (ggf. verschachtelt) Mitglied einer der Gruppen ist.
+func (c *Client) MemberOfAny(userDN string, groups []string) (bool, error) {
+	conn, err := c.serviceConn()
+	if err != nil {
+		return false, err
+	}
+	defer conn.Close()
+	return c.inAnyGroup(conn, userDN, groups)
+}
+
 func (c *Client) inAnyGroup(conn *ldap.Conn, userDN string, groups []string) (bool, error) {
 	if len(groups) == 0 {
 		return true, nil

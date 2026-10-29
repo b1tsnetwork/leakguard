@@ -52,6 +52,35 @@ z. B. `H3rbst-L4ub!2026` → `herbst`, `laub`, `herbstlaub`.
   für die Regex-Regel („Kennwort muss passen“, Lookahead-Syntax wie in Java/.NET)
 - Pro Fall werden Stämme und Regex in der Fallansicht zum Kopieren angezeigt.
 
+## ManageEngine ADSelfService Plus (Password Policy Enforcer)
+
+ADSSP speichert seine Kennwortregeln in der eigenen Datenbank, nicht im AD – sie werden daher im
+Abschnitt `adssp:` der `config.yaml` nachgebildet (mehrere Richtlinien, Zuordnung per OU oder Gruppe).
+
+| ADSSP-Einstellung | `config.yaml` |
+|---|---|
+| Minimum/Maximum length | `min_length`, `max_length` |
+| Uppercase/lowercase/alphabets/numerals/special/Unicode (min.) | `min_uppercase`, `min_lowercase`, `min_letters`, `min_numeric`, `min_special`, `min_unicode` |
+| Restrict special/numeric/Unicode characters (max.) | `max_special`, `max_numeric`, `max_unicode` (0 = verboten) |
+| Unerlaubte Zeichen / Anfangs- und Endzeichen | `disallowed_characters`, `must_not_start_with`, `must_not_end_with` |
+| Consecutive repetition of characters | `max_repeated_characters` |
+| Consecutive characters from username | `max_username_sequence`, `no_username`, `no_display_name` |
+| Keyboard sequences | `keyboard_sequence` (QWERTZ, QWERTY, Ziffernblock, abc/123 – auch rückwärts) |
+| Dictionary words | `dictionary` (Datei, ein Wort pro Zeile, Leetspeak wird erkannt) |
+| Palindromes | `palindrome` |
+| Regex pattern | `regex` (Java/.NET-Syntax inkl. Lookahead) |
+| Compromised passwords (HIBP) | `pwned` (benötigt `hibp.enabled`) |
+| Satisfy at least n of the complexity requirements | `satisfy_at_least` |
+| Override complexity if length ≥ n | `override_complexity_if_length_at_least` |
+| Enforce in GINA/CP and ADUC via Password Sync Agent | `native_enforcement` |
+
+`min_*`-Regeln sind Komplexitätsanforderungen (oder mit `mandatory: true` Pflicht), alle anderen Regeln sind
+Pflicht (oder mit `complexity: true` Komplexitätsanforderung). Nicht prüfbar ist die Kennwort-Historie.
+
+**Bewertung:** Ein Verstoß gegen die ADSSP-Richtlinie schließt das aktuelle AD-Kennwort nur aus, wenn
+`native_enforcement: true` gesetzt ist **und** `pwdLastSet` nach `active_since` liegt. Sonst wird der Verstoß
+angezeigt, das Kennwort gilt aber weiter als mögliches AD-Kennwort.
+
 ## Anmeldung
 
 LDAPS-Bind gegen das AD, beschränkt auf `ldap.admin_groups` (verschachtelte Gruppen optional).
