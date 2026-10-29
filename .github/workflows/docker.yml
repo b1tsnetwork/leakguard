@@ -32,6 +32,7 @@ jobs:
 
       - name: Module prüfen
         run: |
+          go mod tidy -diff    # schlägt fehl, wenn go.mod/go.sum nicht aktuell sind
           go mod download
           go mod verify
 
@@ -58,7 +59,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v3   # nur für die Runtime-Stufe (apk) bei arm64; kompiliert wird nativ
 
       - uses: docker/setup-buildx-action@v3
 

@@ -4,7 +4,7 @@ services:
     container_name: leakguard
     restart: unless-stopped
     ports:
-      - "8084:8080"   # Reverse-Proxy (z. B. Caddy) mit HTTPS davor
+      - "127.0.0.1:8084:8080"   # Reverse-Proxy (z. B. Caddy) mit HTTPS davor
     volumes:
       # Enthält config.yaml, leakguard.db und optional firma-root-ca.pem.
       # Der Container läuft als UID 10001:  sudo chown -R 10001:10001 ./data
@@ -12,8 +12,8 @@ services:
     environment:
       # Optional – überschreiben die Werte aus /data/config.yaml:
       # LEAKGUARD_SECRET: ${LEAKGUARD_SECRET}
-      LEAKGUARD_LDAP_BIND_PASSWORD: ${LEAKGUARD_LDAP_BIND_PASSWORD:-}
-      LEAKGUARD_SMTP_PASSWORD: ${LEAKGUARD_SMTP_PASSWORD:-}
+      # LEAKGUARD_LDAP_BIND_PASSWORD: ${LEAKGUARD_LDAP_BIND_PASSWORD:-}
+      # LEAKGUARD_SMTP_PASSWORD: ${LEAKGUARD_SMTP_PASSWORD:-}
       # HTTPS_PROXY: http://proxy.firma.local:3128   # nur für Pwned-Passwords-Abfrage nötig
 volumes:
   lg_data:

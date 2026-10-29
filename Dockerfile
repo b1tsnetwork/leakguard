@@ -1,22 +1,21 @@
 # syntax=docker/dockerfile:1
 
-# --- Build ---
-FROM golang:1.24-alpine AS build
-RUN apk add --no-cache build-base
+# --- Build (läuft nativ auf der Build-Plattform und cross-kompiliert – kein QEMU nötig) ---
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 ARG VERSION=dev
-# SQLite-Treiber benötigt CGO; statisch gegen musl gelinkt
+ARG TARGETOS
+ARG TARGETARCH
+# Reines Go (modernc.org/sqlite) – kein CGO, statisches Binary
 RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=1 go build -trimpath \
-      -ldflags "-s -w -X main.version=${VERSION} -linkmode external -extldflags '-static'" \
-      -tags "sqlite_omit_load_extension osusergo netgo" \
-      -o /out/leakguard ./cmd/leakguard
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/leakguard ./cmd/leakguard
 
 # --- Runtime ---
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata \
  && adduser -D -H -u 10001 leakguard \
  && mkdir -p /data && chown leakguard:leakguard /data

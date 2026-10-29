@@ -89,8 +89,8 @@ Lokales Dev-Konto: `leakguard hash-password` erzeugt den bcrypt-Hash für `dev_a
 ## GitHub Actions & Dependabot
 
 - `.github/workflows/docker.yml`
-  - **Test**: `go mod verify`, `gofmt`, `go vet`, `go test -race`
-  - **Docker**: Multi-Arch-Image (`linux/amd64`, `linux/arm64`) nach `ghcr.io/<owner>/<repo>`,
+  - **Test**: `go mod tidy -diff`, `go mod verify`, `gofmt`, `go vet`, `go test -race`
+  - **Docker**: Multi-Arch-Image (`linux/amd64`, `linux/arm64`, nativ cross-kompiliert) nach `ghcr.io/<owner>/<repo>`,
     mit SBOM und Build-Provenance. Pull Requests werden nur gebaut, nicht gepusht.
   - Tags: `latest` (Default-Branch), Branchname, `sha-xxxxxxx`, bei Git-Tags `v1.2.3` → `1.2.3`, `1.2`, `1`
   - Release: `git tag v1.0.0 && git push --tags`
@@ -107,7 +107,8 @@ Sichtbarkeit bzw. Zugriff einstellen.
 - LDAPS (636) mit vertrauenswürdigem DC-Zertifikat; interne Root-CA über `ldap.ca_file`.
 - Anmeldegruppe, z. B. `GG-LeakGuard-Admins`.
 
-SQLite nutzt `mattn/go-sqlite3` (CGO, gcc nötig; im Dockerfile enthalten).
+SQLite über `modernc.org/sqlite` – reines Go, kein CGO. Das Binary ist statisch und lässt sich für jede Plattform
+cross-kompilieren (`CGO_ENABLED=0 GOOS=windows go build ./cmd/leakguard`). Benötigt Go ≥ 1.26.
 
 ## Struktur
 
