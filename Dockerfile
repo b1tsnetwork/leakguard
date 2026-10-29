@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache
       -o /out/leakguard ./cmd/leakguard
 
 # --- Runtime ---
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates tzdata \
  && adduser -D -H -u 10001 leakguard \
  && mkdir -p /data && chown leakguard:leakguard /data
