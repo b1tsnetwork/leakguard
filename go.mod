@@ -3,6 +3,7 @@ module leakguard
 go 1.27
 
 require (
+	github.com/dlclark/regexp2 v1.12.0
 	github.com/go-ldap/ldap/v3 v3.4.10
 	golang.org/x/crypto v0.36.0
 	golang.org/x/term v0.30.0
