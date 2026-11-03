@@ -1,0 +1,29 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead"><h1>Audit-Log</h1><span class="muted">{{.Total}} Einträge · unveränderlich</span></div>
+<form class="filters" method="get" action="/audit">
+  <input name="actor" value="{{.Filter.Actor}}" placeholder="Benutzer">
+  <input type="number" name="incident" value="{{if .Filter.IncidentID}}{{.Filter.IncidentID}}{{end}}" placeholder="Vorfall-ID">
+  <input type="search" name="q" value="{{.Filter.Query}}" placeholder="Aktion / Details …">
+  <button class="btn">Filtern</button>
+</form>
+<div class="tablewrap">
+<table class="cases audit">
+  <thead><tr><th>Zeit</th><th>Benutzer</th><th>IP</th><th>Aktion</th><th>Objekt</th><th>Vorfall</th><th>Details</th></tr></thead>
+  <tbody>
+  {{range .Entries}}
+  <tr class="{{if eq .Action "login_failed"}}over{{end}}"><td class="nowrap">{{dt .At}}</td><td>{{.Actor}}</td><td><code>{{.IP}}</code></td><td>{{.Action}}</td>
+    <td>{{.Object}}{{if .ObjectID}} #{{.ObjectID}}{{end}}</td><td>{{if .IncidentID}}<a href="/incidents/{{.IncidentID}}">#{{.IncidentID}}</a>{{end}}</td><td class="pre small">{{.Detail}}</td></tr>
+  {{else}}<tr><td colspan="7" class="muted">Keine Einträge.</td></tr>{{end}}
+  </tbody>
+</table>
+</div>
+{{if gt .Pages 1}}
+<nav class="pager">
+  {{if gt .Page 1}}<a class="btn ghost" href="/audit?{{.Query}}&page={{sub .Page 1}}">← neuer</a>{{end}}
+  <span>Seite {{.Page}} von {{.Pages}}</span>
+  {{if lt .Page .Pages}}<a class="btn ghost" href="/audit?{{.Query}}&page={{add .Page 1}}">älter →</a>{{end}}
+</nav>
+{{end}}
+{{end}}
+{{end}}

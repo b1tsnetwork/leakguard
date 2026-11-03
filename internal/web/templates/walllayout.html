@@ -1,0 +1,16 @@
+{{define "walllayout"}}<!doctype html>
+<html lang="de" class="wallhtml wall-dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · LeakGuard</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<script src="/static/app.js" defer></script>
+</head>
+<body data-live="1" class="wallbody">
+{{if .Msg}}<div class="flash ok wallflash" role="status">{{.Msg}}</div>{{end}}
+{{template "content" .}}
+<div id="toasts" aria-live="polite"></div>
+</body>
+</html>{{end}}

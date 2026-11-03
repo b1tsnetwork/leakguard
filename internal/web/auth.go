@@ -11,7 +11,9 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
+	"leakguard/internal/config"
 	"leakguard/internal/ldapx"
+	"leakguard/internal/model"
 	"leakguard/internal/store"
 )
 
@@ -23,6 +25,10 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 			return
 		}
 		se, err := s.store.GetSession(r.Context(), hashToken(c.Value))
+		if err == nil && se.Role == "" { // Sitzung aus Version ohne Rollen -> neu anmelden
+			_ = s.store.DeleteSession(r.Context(), se.TokenHash)
+			err = store.ErrNotFound
+		}
 		if err != nil {
 			s.clearCookie(w, cookieSession)
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -84,14 +90,15 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sam, disp, err := s.authenticate(user, pass)
+	id, err := s.authenticate(user, pass)
 	if err != nil {
 		s.limiter.fail(key)
 		s.limiter.fail(ip)
 		slog.Warn("login failed", "user", user, "ip", ip, "err", err)
+		s.store.Audit(r.Context(), model.AuditEntry{Actor: user, IP: ip, Action: "login_failed", Detail: err.Error()})
 		switch {
 		case errors.Is(err, ldapx.ErrNotAuthorized):
-			again("Ihr Konto ist für LeakGuard nicht berechtigt.")
+			again("Ihr Konto ist keiner Rolle zugeordnet (Gruppenmitgliedschaft fehlt).")
 		case errors.Is(err, ldapx.ErrInvalidCredentials):
 			again("Benutzername oder Kennwort falsch.")
 		default:
@@ -102,7 +109,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	s.limiter.reset(key)
 
 	token := randToken(32)
-	se := store.Session{TokenHash: hashToken(token), Username: sam, Display: disp, CSRF: randToken(24),
+	se := store.Session{TokenHash: hashToken(token), Username: id.Username, Display: id.Display, Mail: id.Mail, Role: id.Role, CSRF: randToken(24),
 		ExpiresAt: time.Now().Add(time.Duration(s.cfg.SessionHours) * time.Hour)}
 	if err := s.store.CreateSession(r.Context(), se); err != nil {
 		again("Interner Fehler beim Anlegen der Sitzung.")
@@ -110,26 +117,33 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearCookie(w, cookiePre)
 	s.setCookie(w, cookieSession, token, s.cfg.SessionHours*3600)
-	slog.Info("login ok", "user", sam, "ip", ip)
+	_ = s.store.UpsertUser(r.Context(), model.User{Username: id.Username, Display: id.Display, Mail: id.Mail, Role: id.Role})
+	s.store.Audit(r.Context(), model.AuditEntry{Actor: id.Username, IP: ip, Action: "login", Detail: "Rolle " + roleLabel(id.Role)})
+	slog.Info("login ok", "user", id.Username, "role", id.Role, "ip", ip)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
-func (s *Server) authenticate(user, pass string) (string, string, error) {
+func (s *Server) authenticate(user, pass string) (ldapx.Identity, error) {
 	if s.cfg.DevAdmin.Enabled && strings.EqualFold(user, s.cfg.DevAdmin.Username) {
 		if pass != "" && bcrypt.CompareHashAndPassword([]byte(s.cfg.DevAdmin.PasswordHash), []byte(pass)) == nil {
-			return s.cfg.DevAdmin.Username, s.cfg.DevAdmin.Username + " (lokal)", nil
+			return ldapx.Identity{Username: s.cfg.DevAdmin.Username, Display: s.cfg.DevAdmin.Username + " (lokal)", Role: config.RoleAdmin}, nil
 		}
-		return "", "", ldapx.ErrInvalidCredentials
+		return ldapx.Identity{}, ldapx.ErrInvalidCredentials
 	}
 	if !s.ldap.Enabled() {
-		return "", "", ldapx.ErrInvalidCredentials
+		return ldapx.Identity{}, ldapx.ErrInvalidCredentials
 	}
-	return s.ldap.Authenticate(user, pass)
+	var roles []ldapx.RoleGroups
+	for _, rg := range s.cfg.Roles.Ordered() {
+		roles = append(roles, ldapx.RoleGroups{Role: rg.Role, Groups: rg.Groups})
+	}
+	return s.ldap.Authenticate(user, pass, roles)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if se := sessionFrom(r); se != nil {
 		_ = s.store.DeleteSession(r.Context(), se.TokenHash)
+		s.audit(r, "logout", "", 0, 0, "")
 	}
 	s.clearCookie(w, cookieSession)
 	http.Redirect(w, r, "/login?msg=loggedout", http.StatusSeeOther)

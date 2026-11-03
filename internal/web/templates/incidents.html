@@ -1,0 +1,45 @@
+{{define "content"}}
+{{with .Data}}
+<div data-live-scope="0">
+<div class="pagehead">
+  <h1>Sicherheitsvorfälle</h1>
+  <div class="actions">{{if .CanCreate}}<a class="btn primary" href="/incidents/new">+ Neuer Vorfall</a>{{end}}</div>
+</div>
+
+<form class="filters" method="get" action="/incidents">
+  <input type="search" name="q" value="{{.Filter.Query}}" placeholder="Nummer, Titel, Beschreibung …">
+  <select name="state">
+    <option value="aktiv" {{if eq .Filter.State "aktiv"}}selected{{end}}>Aktive</option>
+    <option value="abgeschlossen" {{if eq .Filter.State "abgeschlossen"}}selected{{end}}>Abgeschlossene</option>
+    <option value="alle" {{if eq .Filter.State "alle"}}selected{{end}}>Alle</option>
+    <option value="storniert" {{if eq .Filter.State "storniert"}}selected{{end}}>Stornierte (Fehlanlage/Test)</option>
+  </select>
+  <select name="sev"><option value="">Alle Schweregrade</option>{{range opts "sev"}}<option value="{{.Key}}" {{if eq .Key $.Data.Filter.Severity}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  <select name="cat"><option value="">Alle Kategorien</option>{{range cats}}<option value="{{.Key}}" {{if eq .Key $.Data.Filter.Category}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+  <button class="btn">Filtern</button>
+</form>
+
+<div class="tablewrap" data-live-region="list">
+<table class="cases">
+  <thead><tr><th>Vorfall</th><th>Schwere</th><th>Phase</th><th>Kategorie</th><th>Leitung</th><th>Offen</th><th>Kenntnis</th><th>Aktualisiert</th></tr></thead>
+  <tbody>
+  {{range .Incidents}}{{$c := index $.Data.Counts .ID}}
+  <tr data-href="/incidents/{{.ID}}">
+    <td><a href="/incidents/{{.ID}}"><b>{{.Number}}</b></a> {{if .CrisisMode}}<span class="tag bad">LAGE</span>{{end}}{{if .Confidential}}<span class="tag">vertraulich</span>{{end}}{{if .Cancelled}}<span class="tag bad">storniert</span>{{end}}<br>{{.Title}}</td>
+    <td><span class="sev sev-{{.Severity}}">{{.Severity}}</span> <span class="tlp tlp-{{.TLP}}">{{.TLP}}</span></td>
+    <td>{{lab "phase" .Phase}}</td>
+    <td>{{cat .Category}}</td>
+    <td>{{name $.Data.Names .Lead}}</td>
+    <td class="small">☐ {{$c.OpenTasks}}{{if $c.OverdueTasks}} <span class="tag bad">{{$c.OverdueTasks}} überfällig</span>{{end}}<br>✉ {{$c.OpenRequests}} · § {{$c.OpenObligations}}</td>
+    <td>{{dt .AwarenessAt}}</td>
+    <td>{{dt .UpdatedAt}}</td>
+  </tr>
+  {{else}}
+  <tr><td colspan="8" class="empty muted">Keine Vorfälle gefunden.</td></tr>
+  {{end}}
+  </tbody>
+</table>
+</div>
+</div>
+{{end}}
+{{end}}

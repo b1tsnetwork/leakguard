@@ -32,6 +32,8 @@ type Config struct {
 	Policy   Policy   `yaml:"policy"`
 	HIBP     HIBP     `yaml:"hibp"`
 	ADSSP    ADSSP    `yaml:"adssp"`
+	Roles    Roles    `yaml:"roles"`
+	Incident Incident `yaml:"incident"`
 	DevAdmin DevAdmin `yaml:"dev_admin"`
 }
 
@@ -195,7 +197,15 @@ func (c *Config) applyEnv() {
 	set(&c.DevAdmin.PasswordHash, "LEAKGUARD_DEV_ADMIN_HASH")
 }
 
+// Defaults setzt Standardwerte (für Tests und programmgesteuerte Konfiguration).
+func (c *Config) Defaults() { c.applyDefaults() }
+
 func (c *Config) applyDefaults() {
+	c.Incident.applyDefaults()
+	// Abwärtskompatibel: ldap.admin_groups ohne roles = Admin-Rolle
+	if c.Roles.Empty() && len(c.LDAP.AdminGroups) > 0 {
+		c.Roles.Admin = c.LDAP.AdminGroups
+	}
 	if c.Listen == "" {
 		c.Listen = ":8080"
 	}
@@ -266,14 +276,15 @@ func (c *Config) validate() error {
 		if c.LDAP.BindDN != "" && c.LDAP.BindPassword == "" {
 			errs = append(errs, "ldap.bind_password fehlt (oder LEAKGUARD_LDAP_BIND_PASSWORD setzen)")
 		}
-		if len(c.LDAP.AdminGroups) == 0 {
-			errs = append(errs, "ldap.admin_groups ist leer – ohne Gruppe dürfte sich jeder AD-Nutzer anmelden")
+		if c.Roles.Empty() {
+			errs = append(errs, "roles ist leer – mindestens einer Rolle eine AD-Gruppe zuordnen (sonst dürfte sich jeder AD-Nutzer anmelden)")
 		}
 	}
 	if c.DevAdmin.Enabled && (c.DevAdmin.Username == "" || c.DevAdmin.PasswordHash == "") {
 		errs = append(errs, "dev_admin benötigt username und password_hash")
 	}
 	errs = append(errs, c.ADSSP.validate(c.base)...)
+	errs = append(errs, c.Incident.validate()...)
 	if len(errs) > 0 {
 		return errors.New("ungültige konfiguration:\n  - " + strings.Join(errs, "\n  - "))
 	}

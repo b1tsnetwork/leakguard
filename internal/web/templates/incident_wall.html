@@ -1,0 +1,127 @@
+{{define "content"}}
+{{with .Data}}{{$in := .In}}
+<div class="wallroot wall-incident {{if $in.CrisisMode}}crisis{{end}}" data-live-scope="{{$in.ID}}">
+<header class="wh sevbd-{{$in.Severity}}" data-live-region="head">
+  <a class="wh-brand" href="/wall" title="Zur Gesamtlage"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5 8 12l7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  <div class="wh-title">
+    <div class="wh-badges">
+      <span class="sev sev-{{$in.Severity}}">{{lab "sev" $in.Severity}}</span>
+      <span class="tlp tlp-{{$in.TLP}}">TLP:{{$in.TLP}}</span>
+      {{if $in.Classification}}<span class="tag bad">{{$in.Classification}}</span>{{end}}
+      {{if $in.CrisisMode}}<span class="tag bad">LAGE / KRISENSTAB</span>{{end}}
+      {{if $in.Confidential}}<span class="tag">vertraulich</span>{{end}}
+      {{if $in.Cancelled}}<span class="tag bad">STORNIERT</span>{{end}}
+      <span class="wt-num">{{$in.Number}}</span>
+    </div>
+    <h1>{{$in.Title}}</h1>
+    <span class="wh-sub">{{cat $in.Category}} · Leitung {{name .Names $in.Lead}} · seit Kenntnisnahme {{since $in.AwarenessAt}}</span>
+  </div>
+  <ol class="wsteps" aria-label="Phase">
+    {{$cur := phaseIdx $in.Phase}}
+    {{range $i, $p := opts "phase"}}<li class="{{if lt $i $cur}}done{{else if eq $i $cur}}cur{{end}}">{{$p.Label}}</li>{{end}}
+  </ol>
+  <div class="wh-right">
+    {{if not $in.NextBriefing.IsZero}}<span class="wh-brief" title="Nächste Lagebesprechung {{dt $in.NextBriefing}}">Lagebespr. <b data-due="{{unix $in.NextBriefing}}">{{until $in.NextBriefing}}</b></span>{{end}}
+    <span class="wh-clock" data-clock></span>
+    <span class="livebadge" id="livebadge" title="Live-Verbindung"><i></i><span>Live</span></span>
+    <button type="button" class="wbtn" data-theme-toggle title="Hell / Dunkel"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></svg></button>
+    <button type="button" class="wbtn" data-fullscreen title="Vollbild (Taste F)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <a class="wbtn" href="/incidents/{{$in.ID}}" title="Zur Vorfallakte">Akte</a>
+  </div>
+</header>
+
+<main class="wgrid">
+  <section class="wpanel wp-lage">
+    <div class="wp-head"><h2>Aktuelle Lage{{with .Sitrep}} · Nr. {{.No}} <small>{{dt .At}} · {{name $.Data.Names .By}}</small>{{end}}</h2><span class="pg-ind"></span></div>
+    <div class="wlist wsitrep" data-pager data-live-region="sitrep">
+      {{with .Sitrep}}
+      {{if .Situation}}<div class="ws-block"><h3>Lage</h3><p>{{.Situation}}</p></div>{{end}}
+      {{if .Impact}}<div class="ws-block"><h3>Auswirkungen</h3><p>{{.Impact}}</p></div>{{end}}
+      {{if .Actions}}<div class="ws-block"><h3>Maßnahmen</h3><p>{{.Actions}}</p></div>{{end}}
+      {{if .Decisions}}<div class="ws-block ws-dec"><h3>Entscheidungen</h3><p>{{.Decisions}}</p></div>{{end}}
+      {{if .Outlook}}<div class="ws-block"><h3>Ausblick</h3><p>{{.Outlook}}</p></div>{{end}}
+      {{else}}
+      <div class="ws-block"><h3>Sachverhalt</h3><p>{{or $in.Description "Noch keine Lagemeldung erfasst."}}</p></div>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-next">
+    <div class="wp-head"><h2>Nächste Schritte</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="recs">
+      {{range .Advice.Recs}}
+      <a class="wrow wr-{{.Priority}}" href="/incidents/{{$in.ID}}?tab=empfehlungen">
+        <span class="rprio rprio-{{.Priority}}">{{prioLabel .Priority}}</span>
+        <span class="wr-main">{{.Title}}{{if .Ref}}<small>{{.Ref}}</small>{{end}}</span>
+      </a>
+      {{else}}<p class="wnone">Keine offenen Empfehlungen.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-dl">
+    <div class="wp-head"><h2>Meldefristen</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="obl">
+      {{range .OpenObl}}
+      <div class="wrow wdl {{if .Overdue}}over{{end}}">
+        <b class="wr-due" data-due="{{unix .DueAt}}">{{until .DueAt}}</b>
+        <span class="wr-main">{{.Label}}<small>{{.Authority}} · bis {{dt .DueAt}}</small></span>
+      </div>
+      {{end}}
+      {{range .DoneObl}}
+      <div class="wrow wdone"><span class="wr-ok">{{if eq .Status "erledigt"}}✓{{else}}–{{end}}</span><span class="wr-main">{{.Label}}<small>{{if eq .Status "erledigt"}}erledigt {{dt .DoneAt}}{{else}}nicht erforderlich{{end}}{{if .Reference}} · {{.Reference}}{{end}}</small></span></div>
+      {{end}}
+      {{if and (not .OpenObl) (not .DoneObl)}}<p class="wnone">Keine Meldepflichten aktiviert.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-tasks">
+    <div class="wp-head"><h2>Aufgaben <small>{{len .OpenTasks}} offen{{if .Counts.OverdueTasks}} · <span class="bad">{{.Counts.OverdueTasks}} überfällig</span>{{end}} · {{.DoneTasks}} erledigt</small></h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="tasks">
+      {{range .OpenTasks}}
+      <div class="wrow {{if .Overdue}}over{{end}} ts-{{.Status}}">
+        <span class="prio prio-{{.Priority}}">{{lab "prio" .Priority}}</span>
+        <span class="wr-main">{{.Title}}<small>{{lab "tstat" .Status}}{{if .Assignee}} · {{name $.Data.Names .Assignee}}{{else if .Function}} · {{fn .Function}}{{end}}{{if not .DueAt.IsZero}} · <span data-due="{{unix .DueAt}}">{{until .DueAt}}</span>{{end}}</small></span>
+      </div>
+      {{else}}<p class="wnone">Keine offenen Aufgaben.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-assets">
+    <div class="wp-head"><h2>Systeme</h2><span class="pg-ind"></span></div>
+    <div class="wassetstat" data-live-region="assetstat">{{range .AssetStat}}<span class="wa wa-{{.Status}}"><b>{{.N}}</b> {{lab "astat" .Status}}</span>{{end}}</div>
+    <div class="wlist" data-pager data-live-region="assets">
+      {{range .Assets}}
+      <div class="wrow"><span class="wa wa-{{.Status}}">{{lab "astat" .Status}}</span><span class="wr-main">{{.Name}}<small>{{lab "akind" .Kind}}{{if .Identifier}} · {{.Identifier}}{{end}}</small></span></div>
+      {{else}}<p class="wnone">Noch keine Systeme erfasst.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-comms">
+    <div class="wp-head"><h2>Kommunikation{{if .OpenComms}} <small class="warn">{{.OpenComms}} offen</small>{{end}}</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="comms">
+      {{range .Comms}}
+      <div class="wrow {{if .ReplyOverdue}}over{{end}}">
+        {{if .PendingApproval}}<span class="tag warn">Freigabe</span>{{else if .OpenRequest}}<span class="tag warn">Anfrage</span>{{else}}<span class="tag">{{if eq .Direction "ein"}}⇣{{else}}⇡{{end}} {{lab "cstat" .Status}}</span>{{end}}
+        <span class="wr-main">{{.Subject}}<small>{{lab "party" .PartyType}}{{if .Party}} · {{.Party}}{{end}} · {{dt .OccurredAt}}{{if and .OpenRequest (not .ReplyDue.IsZero)}} · Antwort <span data-due="{{unix .ReplyDue}}">{{until .ReplyDue}}</span>{{end}}</small></span>
+      </div>
+      {{else}}<p class="wnone">Keine Kommunikation erfasst.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-feed">
+    <div class="wp-head"><h2>Einsatztagebuch</h2><span class="pg-ind"></span></div>
+    <ol class="wlist wfeed" data-pager data-pager-top data-live-region="feed">
+      {{range .Feed}}
+      <li class="jk-{{.Kind}}"><time>{{dt .At}}</time> <span class="muted">{{lab "jkind" .Kind}} · {{name $.Data.Names .Actor}}</span><span class="wf-text">{{.Text}}</span></li>
+      {{else}}<li class="wnone">Noch keine Einträge.</li>{{end}}
+    </ol>
+  </section>
+</main>
+
+<footer class="wstab" data-live-region="stab">
+  <b>Stab</b>
+  {{range .Members}}<span class="wm"><small>{{fn .Function}}</small> {{or .Display .Username}}</span>{{else}}<span class="muted">Noch kein Stab besetzt.</span>{{end}}
+</footer>
+</div>
+{{end}}
+{{end}}

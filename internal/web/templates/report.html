@@ -1,0 +1,56 @@
+{{define "content"}}
+{{with .Data}}{{$in := .In}}{{$d := .}}
+<article class="report">
+  <div class="report-tlp tlp-{{$in.TLP}}">TLP:{{$in.TLP}}{{if $in.Confidential}} · VERTRAULICH{{end}}</div>
+  <div class="noprint actions"><button type="button" class="btn" data-print>Drucken / als PDF speichern</button> <a class="btn ghost" href="/incidents/{{$in.ID}}">zurück</a></div>
+  <h1>Vorfallbericht {{$in.Number}}</h1>
+  <h2 class="sub">{{$in.Title}}</h2>
+  <p class="muted">Stand {{dt .Now}} · Phase: {{lab "phase" $in.Phase}} · {{lab "sev" $in.Severity}} · {{cat $in.Category}}</p>
+
+  <h3>1. Zusammenfassung</h3>
+  <dl class="kv">
+    <dt>Leitung</dt><dd>{{name .Names $in.Lead}}</dd>
+    <dt>Meldeweg</dt><dd>{{or $in.Source "–"}}{{if $in.ReportedBy}} · {{$in.ReportedBy}}{{end}}</dd>
+    <dt>Beginn / Entdeckt</dt><dd>{{dt $in.OccurredAt}} / {{dt $in.DetectedAt}}</dd>
+    <dt>Kenntnisnahme</dt><dd>{{dt $in.AwarenessAt}}</dd>
+    <dt>Eingedämmt / Behoben</dt><dd>{{dt $in.ContainedAt}} / {{dt $in.ResolvedAt}}</dd>
+    <dt>Abgeschlossen</dt><dd>{{dt $in.ClosedAt}}</dd>
+    <dt>Schutzziele</dt><dd>{{if $in.ImpactC}}Vertraulichkeit {{end}}{{if $in.ImpactI}}Integrität {{end}}{{if $in.ImpactA}}Verfügbarkeit{{end}}</dd>
+    <dt>Personenbezogene Daten</dt><dd>{{if $in.PersonalData}}ja{{else}}nein{{end}}{{if $in.AffectedUsers}} · ca. {{$in.AffectedUsers}} Betroffene{{end}}</dd>
+  </dl>
+  <p class="pre">{{$in.Description}}</p>
+
+  {{if .Sitreps}}{{$s := index .Sitreps 0}}
+  <h3>2. Aktuelles Lagebild (Lagemeldung Nr. {{$s.No}}, {{dt $s.At}})</h3>
+  <dl class="sitrep"><dt>Lage</dt><dd>{{$s.Situation}}</dd>{{if $s.Impact}}<dt>Auswirkungen</dt><dd>{{$s.Impact}}</dd>{{end}}{{if $s.Actions}}<dt>Maßnahmen</dt><dd>{{$s.Actions}}</dd>{{end}}{{if $s.Outlook}}<dt>Prognose</dt><dd>{{$s.Outlook}}</dd>{{end}}{{if $s.Decisions}}<dt>Entscheidungsbedarf</dt><dd>{{$s.Decisions}}</dd>{{end}}</dl>
+  {{end}}
+
+  <h3>3. Stab</h3>
+  <table class="rtable"><tr><th>Person</th><th>Funktion</th><th>Rolle</th></tr>{{range .Members}}<tr><td>{{.Display}}</td><td>{{fn .Function}}</td><td>{{lab "irole" .Role}}</td></tr>{{end}}</table>
+
+  <h3>4. Meldepflichten</h3>
+  <table class="rtable"><tr><th>Pflicht</th><th>Fällig</th><th>Status</th><th>Referenz / Begründung</th></tr>
+  {{range .Obligations}}<tr><td>{{.Label}}<br><small>{{.Authority}}</small></td><td>{{dt .DueAt}}</td><td>{{if eq .Status "erledigt"}}gemeldet {{dt .DoneAt}}{{else if eq .Status "nicht_erforderlich"}}nicht erforderlich{{else}}OFFEN{{end}}</td><td>{{.Reference}} {{.Note}}</td></tr>{{else}}<tr><td colspan="4">keine aktiviert</td></tr>{{end}}</table>
+
+  <h3>5. Betroffene Systeme</h3>
+  <table class="rtable"><tr><th>System</th><th>Art</th><th>Kennung</th><th>Status</th></tr>{{range .Assets}}<tr><td>{{.Name}}</td><td>{{lab "akind" .Kind}}</td><td>{{.Identifier}}</td><td>{{lab "astat" .Status}}</td></tr>{{else}}<tr><td colspan="4">–</td></tr>{{end}}</table>
+
+  <h3>6. Aufgaben</h3>
+  <table class="rtable"><tr><th>#</th><th>Aufgabe</th><th>Zuständig</th><th>Status</th><th>Ergebnis</th></tr>{{range .Tasks}}<tr><td>{{.ID}}</td><td>{{.Title}}</td><td>{{name $d.Names .Assignee}}</td><td>{{lab "tstat" .Status}}</td><td>{{.Result}}</td></tr>{{else}}<tr><td colspan="5">–</td></tr>{{end}}</table>
+
+  <h3>7. Kommunikation</h3>
+  <table class="rtable"><tr><th>Zeit</th><th>Richtung</th><th>Gegenüber</th><th>Betreff</th><th>Status</th></tr>{{range .Comms}}<tr><td>{{dt .OccurredAt}}</td><td>{{.Direction}} / {{.Scope}}</td><td>{{lab "party" .PartyType}} {{.Party}}</td><td>{{.Subject}}</td><td>{{lab "cstat" .Status}}</td></tr>{{else}}<tr><td colspan="5">–</td></tr>{{end}}</table>
+
+  {{if .IOCs}}<h3>8. IOCs</h3>
+  <table class="rtable"><tr><th>Typ</th><th>Wert</th><th>Beschreibung</th></tr>{{range .IOCs}}<tr><td>{{lab "ioc" .Type}}</td><td><code>{{.Value}}</code></td><td>{{.Description}}</td></tr>{{end}}</table>{{end}}
+
+  <h3>9. Nachbereitung</h3>
+  <dl class="sitrep"><dt>Ursache</dt><dd>{{or $in.RootCause "–"}}</dd><dt>Lessons Learned</dt><dd>{{or $in.Lessons "–"}}</dd><dt>Maßnahmen</dt><dd>{{or $in.Improvements "–"}}</dd></dl>
+
+  <h3>10. Einsatztagebuch (chronologisch)</h3>
+  <table class="rtable journal"><tr><th>#</th><th>Zeit</th><th>Wer</th><th>Art</th><th>Eintrag</th></tr>
+  {{range rev .Journal}}<tr><td>{{.ID}}</td><td class="nowrap">{{dt .At}}{{if not .OccurredAt.IsZero}}<br><small>Ereignis {{dt .OccurredAt}}</small>{{end}}</td><td>{{name $d.Names .Actor}}</td><td>{{lab "jkind" .Kind}}</td><td class="pre">{{.Text}}</td></tr>{{end}}</table>
+  <p class="muted small">Erstellt mit LeakGuard am {{dt .Now}}. Einsatztagebuch und Audit-Log sind unveränderlich gespeichert.</p>
+</article>
+{{end}}
+{{end}}

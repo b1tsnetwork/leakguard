@@ -51,7 +51,7 @@ func TestCasePageWithADUser(t *testing.T) {
 	if err := st.CreateCase(ctx, c); err != nil {
 		t.Fatal(err)
 	}
-	se := store.Session{TokenHash: hashToken("tok"), Username: "admin", Display: "Admin", CSRF: "c", ExpiresAt: time.Now().Add(time.Hour)}
+	se := store.Session{TokenHash: hashToken("tok"), Username: "admin", Display: "Admin", Role: "admin", CSRF: "c", ExpiresAt: time.Now().Add(time.Hour)}
 	if err := st.CreateSession(ctx, se); err != nil {
 		t.Fatal(err)
 	}
@@ -74,10 +74,10 @@ func TestCasePageWithADUser(t *testing.T) {
 			t.Errorf("Fallseite enthält nicht %q", want)
 		}
 	}
-	for _, p := range []string{"/", "/cases/new", "/settings", "/export.csv", "/?q=pat&status=offen"} {
+	for _, p := range []string{"/leaks", "/cases/new", "/settings", "/export.csv", "/leaks?q=pat&status=offen", "/", "/incidents", "/audit"} {
 		if code, b := get(p); code != 200 {
 			t.Errorf("%s: status %d", p, code)
-		} else if p == "/" && !strings.Contains(b, "SOC-1") {
+		} else if p == "/leaks" && !strings.Contains(b, "SOC-1") {
 			t.Errorf("Liste ohne Fall")
 		}
 	}

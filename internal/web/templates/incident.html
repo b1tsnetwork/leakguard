@@ -1,0 +1,648 @@
+{{define "content"}}
+{{with .Data}}{{$in := .In}}{{$d := .}}
+<div data-live-scope="{{$in.ID}}">
+<datalist id="userlist">{{range .Users}}<option value="{{.Username}}">{{.Display}}</option>{{end}}</datalist>
+
+{{if $in.Cancelled}}
+<div class="cancelbanner">
+  <b>Storniert</b> am {{dt $in.CancelledAt}} von {{name .Names $in.CancelledBy}} – {{$in.CancelReason}}
+  <div class="cancel-actions">
+  {{if .CanLead}}
+    <form method="post" action="/incidents/{{$in.ID}}/restore" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="btn small" data-confirm="Storno aufheben und Vorfall wieder aktivieren?">Storno aufheben</button></form>
+  {{end}}
+  {{if has $.Session "admin"}}
+    <details class="purge"><summary class="btn small danger">Endgültig löschen …</summary>
+      <form method="post" action="/incidents/{{$in.ID}}/purge" class="inline">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <span class="small">Löscht den Vorfall mit Tagebuch, Aufgaben, Kommunikation, Systemen, IOCs und Lagemeldungen unwiderruflich. Im Audit-Log bleibt ein Löschvermerk. Zur Bestätigung Vorfallnummer eingeben:</span>
+        <input name="confirm" placeholder="{{$in.Number}}" autocomplete="off" required>
+        <button class="btn small danger">Endgültig löschen</button>
+      </form>
+    </details>
+  {{end}}
+  </div>
+</div>
+{{end}}
+{{if $in.Classification}}<div class="vsbanner">{{$in.Classification}} – nur für den Dienstgebrauch. Weitergabe nur an Berechtigte; Ausdrucke kennzeichnen.</div>{{end}}
+<div data-live-region="head">
+<div class="pagehead">
+  <div>
+    <a class="back" href="/incidents">← Vorfälle</a>
+    <h1><span class="muted">{{$in.Number}}</span> {{$in.Title}}</h1>
+    <div class="badges">
+      <span class="sev sev-{{$in.Severity}}">{{lab "sev" $in.Severity}}</span>
+      <span class="tlp tlp-{{$in.TLP}}">TLP:{{$in.TLP}}</span>
+      {{if $in.Classification}}<span class="tag bad">{{$in.Classification}}</span>{{end}}
+      <span class="tag">{{cat $in.Category}}</span>
+      {{if $in.CrisisMode}}<span class="tag bad">LAGE AKTIV</span>{{end}}
+      {{if $in.Confidential}}<span class="tag warn">vertraulich</span>{{end}}
+      {{if $in.PersonalData}}<span class="tag warn">personenbezogene Daten</span>{{end}}
+      <span class="muted small">Ihre Rolle: <b>{{lab "irole" $in.MyRole}}</b> · Leitung: {{name .Names $in.Lead}} · seit Kenntnisnahme {{since $in.AwarenessAt}}</span>
+    </div>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/incidents/{{$in.ID}}/wall" title="Vollbildansicht dieses Vorfalls für Großbildschirm / Lageraum">Lagewand</a>
+    <a class="btn" href="/incidents/{{$in.ID}}/report" target="_blank">Bericht</a>
+    {{if and .CanLead (not $in.Cancelled)}}
+    <details class="cancelmenu"><summary class="btn ghost" title="Fehlanlage oder Testvorfall">Stornieren …</summary>
+      <form method="post" action="/incidents/{{$in.ID}}/cancel" class="card dropform">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <b>Als Fehlanlage / Test stornieren</b>
+        <p class="small muted">Der Vorfall verschwindet aus Lagezentrum, Listen, Fristen und Empfehlungen, bleibt aber erhalten und kann wiederhergestellt werden. Offene Meldefristen werden beendet.{{if has $.Session "admin"}} Danach kann er endgültig gelöscht werden.{{end}}</p>
+        <label>Begründung <span class="req">*</span><input name="reason" required minlength="3" placeholder="z. B. Testvorfall Schulung, doppelt angelegt …"></label>
+        <button class="btn danger">Stornieren</button>
+      </form>
+    </details>
+    {{end}}
+    {{if .CanLead}}
+    <form method="post" action="/incidents/{{$in.ID}}/phase" class="inline">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <select name="phase" data-autosubmit data-confirm="Phase wirklich ändern? Die Änderung wird im Einsatztagebuch dokumentiert.">
+        {{range opts "phase"}}<option value="{{.Key}}" {{if eq .Key $in.Phase}}selected{{end}}>Phase: {{.Label}}</option>{{end}}
+      </select>
+    </form>
+    {{end}}
+  </div>
+</div>
+<ol class="stepper">
+  {{range $i, $p := opts "phase"}}<li class="{{if lt $i (phaseIdx $in.Phase)}}done{{else if eq $p.Key $in.Phase}}current{{end}}" title="{{$p.Hint}}">{{$p.Label}}</li>{{end}}
+</ol>
+<nav class="tabs">
+  {{range tabs}}{{if or (ne .Key "protokoll") $d.CanLead}}
+  <a href="/incidents/{{$in.ID}}?tab={{.Key}}" class="{{if eq .Key $d.Tab}}active{{end}}">{{.Label}}
+    {{if eq .Key "empfehlungen"}}{{if $d.RecCount}}<span class="cnt {{if $d.Advice.Count "kritisch"}}bad{{else}}warn{{end}}">{{$d.RecCount}}</span>{{end}}{{end}}
+    {{if eq .Key "aufgaben"}}<span class="cnt {{if $d.Counts.OverdueTasks}}bad{{end}}">{{$d.Counts.OpenTasks}}</span>{{end}}
+    {{if eq .Key "kommunikation"}}{{if or $d.Counts.OpenRequests $d.Counts.PendingApprovals}}<span class="cnt warn">{{add $d.Counts.OpenRequests $d.Counts.PendingApprovals}}</span>{{end}}{{end}}
+    {{if eq .Key "systeme"}}<span class="cnt {{if $d.Counts.Compromised}}bad{{end}}">{{$d.Counts.Assets}}</span>{{end}}
+    {{if eq .Key "iocs"}}<span class="cnt">{{$d.Counts.IOCs}}</span>{{end}}
+    {{if eq .Key "meldepflichten"}}{{if $d.Counts.OpenObligations}}<span class="cnt warn">{{$d.Counts.OpenObligations}}</span>{{end}}{{end}}
+    {{if eq .Key "stab"}}<span class="cnt">{{len $d.Members}}</span>{{end}}
+  </a>{{end}}{{end}}
+</nav>
+</div>
+
+{{/* =================== LAGE =================== */}}
+{{if eq .Tab "lage"}}
+<div class="grid2 wide-left">
+<div>
+  <section class="card nextsteps" data-live-region="nextsteps">
+    <div class="cardhead"><h2>Nächste Schritte</h2>{{if gt (len .Advice.Recs) (len .TopRecs)}}<a class="small" href="?tab=empfehlungen">alle {{len .Advice.Recs}} Empfehlungen →</a>{{end}}</div>
+    {{range .TopRecs}}{{template "recitem" dict "R" . "ID" $in.ID "CSRF" $.CSRF "Edit" $d.CanEdit "Lead" $d.CanLead "Ret" "lage" "Compact" true}}{{else}}
+    <p class="muted">Keine offenen Empfehlungen – der Vorfall ist nach den hinterlegten Regeln vollständig bearbeitet.</p>{{end}}
+    {{template "phasecheck" dict "P" .Advice.Phase}}
+  </section>
+  <section class="card" data-live-region="sitrep">
+    {{if .Sitreps}}{{$s := index .Sitreps 0}}
+    <div class="cardhead"><h2>Lagebild – Lagemeldung Nr. {{$s.No}}</h2><span class="muted small">{{dt $s.At}} · {{name .Names $s.By}} · {{lab "phase" $s.Phase}} · {{$s.Severity}}</span></div>
+    <dl class="sitrep">
+      <dt>Lage</dt><dd>{{$s.Situation}}</dd>
+      {{if $s.Impact}}<dt>Auswirkungen</dt><dd>{{$s.Impact}}</dd>{{end}}
+      {{if $s.Actions}}<dt>Maßnahmen</dt><dd>{{$s.Actions}}</dd>{{end}}
+      {{if $s.Outlook}}<dt>Prognose / Lageentwicklung</dt><dd>{{$s.Outlook}}</dd>{{end}}
+      {{if $s.Decisions}}<dt class="bad">Entscheidungsbedarf</dt><dd class="decision">{{$s.Decisions}}</dd>{{end}}
+    </dl>
+    {{else}}
+    <h2>Lagebild</h2>
+    <p class="muted">Noch keine Lagemeldung. Eine Lagemeldung fasst den aktuellen Stand strukturiert zusammen (Lage – Auswirkungen – Maßnahmen – Prognose – Entscheidungsbedarf) und wird nummeriert archiviert.</p>
+    <p class="pre">{{$in.Description}}</p>
+    {{end}}
+    {{if gt (len .Sitreps) 1}}
+    <details><summary>Frühere Lagemeldungen ({{sub (len .Sitreps) 1}})</summary>
+      {{range $i, $s := .Sitreps}}{{if gt $i 0}}
+      <div class="sitrep-old"><b>Nr. {{$s.No}}</b> · {{dt $s.At}} · {{name $d.Names $s.By}}<p class="pre">{{$s.Situation}}</p></div>
+      {{end}}{{end}}
+    </details>
+    {{end}}
+  </section>
+
+  {{if .CanEdit}}
+  <details class="card formcard" id="sitrep-form">
+    <summary><b>Neue Lagemeldung erstellen</b></summary>
+    {{$last := .Sitreps}}
+    <form method="post" action="/incidents/{{$in.ID}}/sitrep">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <label>Lage (Was ist der aktuelle Stand?) <span class="req">*</span><textarea name="situation" rows="4" required>{{if $last}}{{(index $last 0).Situation}}{{end}}</textarea></label>
+      <label>Auswirkungen (Betrieb, Daten, Personen)<textarea name="impact" rows="3">{{if $last}}{{(index $last 0).Impact}}{{end}}</textarea></label>
+      <label>Laufende / erledigte Maßnahmen<textarea name="actions" rows="3">{{if $last}}{{(index $last 0).Actions}}{{end}}</textarea></label>
+      <label>Prognose / erwartete Lageentwicklung<textarea name="outlook" rows="2">{{if $last}}{{(index $last 0).Outlook}}{{end}}</textarea></label>
+      <label>Entscheidungsbedarf (an Leitung / Geschäftsführung)<textarea name="decisions" rows="2"></textarea></label>
+      <label class="narrow">Nächste Lagebesprechung<input type="datetime-local" name="next" value="{{dtl $in.NextBriefing}}"></label>
+      <button class="btn primary">Lagemeldung speichern</button>
+    </form>
+  </details>
+  {{end}}
+
+  <section class="card" data-live-region="overview-journal">
+    <div class="cardhead"><h2>Letzte Ereignisse</h2><a class="small" href="/incidents/{{$in.ID}}?tab=tagebuch">Einsatztagebuch →</a></div>
+    <ol class="timeline compact">
+      {{range $i, $e := .Journal}}{{if lt $i 12}}
+      <li class="ev jk-{{$e.Kind}}"><div class="evhead"><time>{{dt $e.At}}</time> · <b>{{name $d.Names $e.Actor}}</b> · {{lab "jkind" $e.Kind}}</div><div class="evmsg">{{$e.Text}}</div></li>
+      {{end}}{{else}}<li class="muted">Noch keine Einträge.</li>{{end}}
+    </ol>
+  </section>
+  {{if .CanEdit}}
+  <form class="card quickjournal" method="post" action="/incidents/{{$in.ID}}/journal">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="lage">
+    <select name="kind">{{range manualKinds}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select>
+    <input name="text" placeholder="Schnelleintrag ins Einsatztagebuch …" required>
+    <button class="btn">Eintragen</button>
+  </form>
+  {{end}}
+</div>
+
+<aside>
+  <section class="card" data-live-region="status">
+    <h2>Status</h2>
+    <div class="minigrid">
+      <a href="?tab=aufgaben" class="mini {{if .Counts.OverdueTasks}}bad{{end}}"><b>{{.Counts.OpenTasks}}</b><span>Aufgaben offen{{if .Counts.OverdueTasks}}, {{.Counts.OverdueTasks}} überfällig{{end}}</span></a>
+      <a href="?tab=kommunikation" class="mini {{if .Counts.OpenRequests}}warn{{end}}"><b>{{.Counts.OpenRequests}}</b><span>Anfragen offen</span></a>
+      <a href="?tab=kommunikation" class="mini {{if .Counts.PendingApprovals}}warn{{end}}"><b>{{.Counts.PendingApprovals}}</b><span>Freigaben</span></a>
+      <a href="?tab=systeme" class="mini {{if .Counts.Compromised}}bad{{end}}"><b>{{.Counts.Assets}}</b><span>Systeme, {{.Counts.Compromised}} kompromittiert</span></a>
+    </div>
+    {{range .Obligations}}{{if .Open}}
+    <a class="row-link {{if .Overdue}}over{{end}}" href="?tab=meldepflichten"><b class="due" data-due="{{unix .DueAt}}">{{until .DueAt}}</b><span>§ {{.Label}}</span></a>
+    {{end}}{{end}}
+    {{if not $in.NextBriefing.IsZero}}<p class="small">Nächste Lagebesprechung: <b>{{dt $in.NextBriefing}}</b> (<span data-due="{{unix $in.NextBriefing}}">{{until $in.NextBriefing}}</span>)</p>{{end}}
+    {{if .CanLead}}
+    <form method="post" action="/incidents/{{$in.ID}}/crisis" class="crisisform">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <label class="check"><input type="checkbox" name="crisis_mode" value="1" {{if $in.CrisisMode}}checked{{end}}><span>Lage / Krisenstab aktiv</span></label>
+      <label>Nächste Lagebesprechung<input type="datetime-local" name="next_briefing" value="{{dtl $in.NextBriefing}}"></label>
+      <button class="btn small">Übernehmen</button>
+    </form>
+    {{end}}
+  </section>
+
+  <section class="card">
+    <h2>Steckbrief</h2>
+    <dl class="kv">
+      <dt>Kategorie</dt><dd>{{cat $in.Category}}</dd>
+      <dt>Meldeweg</dt><dd>{{or $in.Source "–"}}{{if $in.ReportedBy}} · {{$in.ReportedBy}}{{end}}</dd>
+      <dt>Schutzziele</dt><dd>{{if $in.ImpactC}}<span class="tag">Vertraulichkeit</span>{{end}}{{if $in.ImpactI}}<span class="tag">Integrität</span>{{end}}{{if $in.ImpactA}}<span class="tag">Verfügbarkeit</span>{{end}}{{if not (or $in.ImpactC $in.ImpactI $in.ImpactA)}}–{{end}}</dd>
+      <dt>Betroffene</dt><dd>{{if $in.AffectedUsers}}ca. {{$in.AffectedUsers}}{{else}}–{{end}}{{if $in.PersonalData}} · personenbezogene Daten{{end}}</dd>
+      <dt>Beginn</dt><dd>{{dt $in.OccurredAt}}</dd>
+      <dt>Entdeckt</dt><dd>{{dt $in.DetectedAt}}</dd>
+      <dt>Kenntnisnahme</dt><dd>{{dt $in.AwarenessAt}}</dd>
+      <dt>Eingedämmt</dt><dd>{{dt $in.ContainedAt}}</dd>
+      <dt>Behoben</dt><dd>{{dt $in.ResolvedAt}}</dd>
+      <dt>Abgeschlossen</dt><dd>{{dt $in.ClosedAt}}</dd>
+      <dt>Angelegt</dt><dd>{{dt $in.CreatedAt}} · {{name .Names $in.CreatedBy}}</dd>
+      {{with .LeakCase}}<dt>Leak-Fall</dt><dd><a href="/cases/{{.ID}}">{{.CaseNumber}}</a> ({{.Username}})</dd>{{end}}
+    </dl>
+    {{if .CanLead}}
+    <details class="formcard" id="edit-incident">
+      <summary>Stammdaten bearbeiten</summary>
+      <form method="post" action="/incidents/{{$in.ID}}/update">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <label>Titel<input name="title" value="{{$in.Title}}" required></label>
+        <label>Kategorie<select name="category">{{range cats}}<option value="{{.Key}}" {{if eq .Key $in.Category}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+        <div class="row2">
+          <label>Schwere<select name="severity">{{range opts "sev"}}<option value="{{.Key}}" {{if eq .Key $in.Severity}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+          <label>TLP<select name="tlp">{{range opts "tlp"}}<option value="{{.Key}}" {{if eq .Key $in.TLP}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+        </div>
+        <label>VS-Einstufung<select name="classification"><option value="">keine</option><option value="VS-NfD" {{if eq $in.Classification "VS-NfD"}}selected{{end}}>VS – Nur für den Dienstgebrauch</option></select></label>
+        <label>Leitung<input name="lead" list="userlist" value="{{$in.Lead}}"></label>
+        <label class="check"><input type="checkbox" name="confidential" value="1" {{if $in.Confidential}}checked{{end}}><span>Vertraulich (need-to-know)</span></label>
+        <label>Beschreibung<textarea name="description" rows="5">{{$in.Description}}</textarea></label>
+        <div class="row2">
+          <label>Meldeweg<input name="source" value="{{$in.Source}}"></label>
+          <label>Gemeldet von<input name="reported_by" value="{{$in.ReportedBy}}"></label>
+        </div>
+        <label>Beginn<input type="datetime-local" name="occurred_at" value="{{dtl $in.OccurredAt}}"></label>
+        <label>Entdeckt<input type="datetime-local" name="detected_at" value="{{dtl $in.DetectedAt}}"></label>
+        <label>Kenntnisnahme (Fristbeginn)<input type="datetime-local" name="awareness_at" value="{{dtl $in.AwarenessAt}}" required></label>
+        <div class="checks-inline">
+          <label class="check"><input type="checkbox" name="impact_c" value="1" {{if $in.ImpactC}}checked{{end}}><span>V</span></label>
+          <label class="check"><input type="checkbox" name="impact_i" value="1" {{if $in.ImpactI}}checked{{end}}><span>I</span></label>
+          <label class="check"><input type="checkbox" name="impact_a" value="1" {{if $in.ImpactA}}checked{{end}}><span>A</span></label>
+          <label class="check"><input type="checkbox" name="personal_data" value="1" {{if $in.PersonalData}}checked{{end}}><span>Pers. Daten</span></label>
+        </div>
+        <label>Betroffene (ca.)<input type="number" min="0" name="affected_users" value="{{$in.AffectedUsers}}"></label>
+        <button class="btn primary">Speichern</button>
+      </form>
+    </details>
+    {{end}}
+  </section>
+</aside>
+</div>
+{{end}}
+
+{{/* =================== EMPFEHLUNGEN =================== */}}
+{{if eq .Tab "empfehlungen"}}
+<div class="grid2 wide-left">
+<section class="card" data-live-region="recs">
+  <h2>Handlungsempfehlungen</h2>
+  <p class="muted small">Regelbasiert aus dem aktuellen Stand des Vorfalls abgeleitet (BSI IT-Grundschutz, BSI-Standard 200-4, NIST SP 800-61, DSGVO, Landes-/Bundesrecht). Es werden keine Daten an externe Dienste übermittelt. Verworfene Empfehlungen werden mit Begründung im Einsatztagebuch dokumentiert.</p>
+  {{range .Advice.Recs}}{{template "recitem" dict "R" . "ID" $in.ID "CSRF" $.CSRF "Edit" $d.CanEdit "Lead" $d.CanLead "Ret" "empfehlungen" "Compact" false}}{{else}}
+  <p class="muted">Keine offenen Empfehlungen.</p>{{end}}
+</section>
+<aside><section class="card" data-live-region="phasecheck">{{template "phasecheck" dict "P" .Advice.Phase}}</section></aside>
+</div>
+{{end}}
+
+{{/* =================== EINSATZTAGEBUCH =================== */}}
+{{if eq .Tab "tagebuch"}}
+<div class="grid2 wide-left">
+<section class="card" data-live-region="journal">
+  <div class="cardhead">
+    <h2>Einsatztagebuch</h2>
+    <form method="get" class="inline small">
+      <input type="hidden" name="tab" value="tagebuch">
+      <select name="kind" data-autosubmit><option value="">Alle Arten</option>{{range opts "jkind"}}<option value="{{.Key}}" {{if eq .Key $d.JKind}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      <select name="auto" data-autosubmit><option value="1">mit Systemeinträgen</option><option value="0" {{if not $d.ShowAuto}}selected{{end}}>nur manuelle Einträge</option></select>
+    </form>
+  </div>
+  <p class="muted small">Unveränderlich: Einträge können nicht bearbeitet oder gelöscht werden – Berichtigungen als Korrektur-Eintrag.</p>
+  <ol class="timeline">
+    {{range .Journal}}
+    <li class="ev jk-{{.Kind}} {{if .Auto}}auto{{end}}" id="j{{.ID}}">
+      <div class="evhead"><b>#{{.ID}}</b> · <time>{{dt .At}}</time>{{if not .OccurredAt.IsZero}} · Ereignis {{dt .OccurredAt}}{{end}} · <b>{{name $d.Names .Actor}}</b> · <span class="jk">{{lab "jkind" .Kind}}</span>{{if .RefID}} zu <a href="#j{{.RefID}}">#{{.RefID}}</a>{{end}}
+        {{if and $d.CanEdit (not .Auto)}}<button type="button" class="linkbtn" data-fill="ref" data-value="{{.ID}}" title="Korrektur zu diesem Eintrag">korrigieren</button>{{end}}</div>
+      <div class="evmsg">{{.Text}}</div>
+    </li>
+    {{else}}<li class="muted">Keine Einträge.</li>{{end}}
+  </ol>
+</section>
+{{if .CanEdit}}
+<aside>
+<form class="card sticky" method="post" action="/incidents/{{$in.ID}}/journal">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <h2>Neuer Eintrag</h2>
+  <label>Art<select name="kind">{{range manualKinds}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+  <label>Ereigniszeit (falls abweichend)<input type="datetime-local" name="occurred_at"></label>
+  <label>Text <span class="req">*</span><textarea name="text" rows="8" required placeholder="Wer – was – wann – warum. Bei Entscheidungen: Entscheider, Alternativen, Begründung."></textarea></label>
+  <label class="narrow">Korrektur zu Eintrag #<input name="ref" id="ref" inputmode="numeric" placeholder="leer = neuer Eintrag"></label>
+  <button class="btn primary">Eintragen</button>
+</form>
+</aside>
+{{end}}
+</div>
+{{end}}
+
+{{/* =================== AUFGABEN =================== */}}
+{{if eq .Tab "aufgaben"}}
+{{if .CanEdit}}
+<details class="card formcard" id="task-form" {{if not .Tasks}}open{{end}}>
+  <summary><b>+ Aufgabe / Auftrag erteilen</b></summary>
+  <form method="post" action="/incidents/{{$in.ID}}/tasks" class="taskform">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="aufgaben">
+    <label class="span2">Aufgabe <span class="req">*</span><input name="title" required maxlength="300"></label>
+    <label>Stabsfunktion<select name="function"><option value="">–</option>{{range fns}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label>Zuständig<input name="assignee" list="userlist" placeholder="Benutzername"></label>
+    <label>Priorität<select name="priority">{{range opts "prio"}}<option value="{{.Key}}" {{if eq .Key "mittel"}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <label>Frist<input type="datetime-local" name="due_at"></label>
+    <label class="span3">Details<textarea name="details" rows="2"></textarea></label>
+    <button class="btn primary">Anlegen</button>
+  </form>
+</details>
+{{end}}
+<section class="card" data-live-region="tasks">
+  <h2>Aufgaben</h2>
+  <div class="tablewrap flat">
+  <table class="tasks">
+    <thead><tr><th>#</th><th>Aufgabe</th><th>Funktion / Zuständig</th><th>Prio</th><th>Frist</th><th>Status</th></tr></thead>
+    <tbody>
+    {{range .Tasks}}
+    <tr class="{{if not .Open}}done{{end}} {{if .Overdue}}over{{end}}">
+      <td>{{.ID}}</td>
+      <td><b>{{.Title}}</b>{{if .Details}}<div class="small muted pre">{{.Details}}</div>{{end}}
+        {{if .Result}}<div class="small result">↳ {{.Result}}</div>{{end}}
+        <div class="small muted">erteilt {{dt .CreatedAt}} von {{name $d.Names .CreatedBy}}{{if not .DoneAt.IsZero}} · erledigt {{dt .DoneAt}} von {{name $d.Names .DoneBy}}{{end}}</div>
+        {{if $d.CanEdit}}
+        <details class="inline-details" id="tr{{.ID}}"><summary class="small">Rückmeldung</summary>
+          <form method="post" action="/incidents/{{$in.ID}}/tasks/{{.ID}}" class="inline">
+            <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="aufgaben">
+            <input name="result" placeholder="Ergebnis / Rückmeldung" value="">
+            <select name="status">{{range opts "tstat"}}<option value="{{.Key}}" {{if eq .Key "erledigt"}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+            <button class="btn small">Speichern</button>
+          </form>
+        </details>{{end}}
+      </td>
+      <td>{{fn .Function}}<br>
+        {{if $d.CanEdit}}<form method="post" action="/incidents/{{$in.ID}}/tasks/{{.ID}}" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="aufgaben">
+          <input name="assignee" list="userlist" value="{{.Assignee}}" class="small-input" data-autosubmit placeholder="zuweisen"></form>
+        {{else}}{{name $d.Names .Assignee}}{{end}}</td>
+      <td><span class="prio prio-{{.Priority}}">{{lab "prio" .Priority}}</span></td>
+      <td>{{if not .DueAt.IsZero}}{{dt .DueAt}}{{if .Open}}<br><small data-due="{{unix .DueAt}}">{{until .DueAt}}</small>{{end}}{{else}}–{{end}}</td>
+      <td>{{if $d.CanEdit}}<form method="post" action="/incidents/{{$in.ID}}/tasks/{{.ID}}" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="aufgaben">
+          {{$st := .Status}}<select name="status" data-autosubmit class="st st-{{.Status}}">{{range opts "tstat"}}<option value="{{.Key}}" {{if eq .Key $st}}selected{{end}}>{{.Label}}</option>{{end}}</select></form>
+        {{else}}{{lab "tstat" .Status}}{{end}}</td>
+    </tr>
+    {{else}}<tr><td colspan="6" class="muted">Keine Aufgaben.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+
+{{/* =================== KOMMUNIKATION =================== */}}
+{{if eq .Tab "kommunikation"}}
+{{if .CanEdit}}
+<details class="card formcard" id="comm-form" {{if not .Comms}}open{{end}}>
+  <summary><b>+ Kommunikation dokumentieren</b></summary>
+  <form method="post" action="/incidents/{{$in.ID}}/comms" class="commform">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <fieldset class="radios"><legend>Richtung</legend>
+      <label class="check"><input type="radio" name="direction" value="ein" checked><span>Eingang (Anfrage, Hinweis, Anruf)</span></label>
+      <label class="check"><input type="radio" name="direction" value="aus"><span>Ausgang (Information, Meldung, Antwort)</span></label>
+    </fieldset>
+    <fieldset class="radios"><legend>Bereich</legend>
+      <label class="check"><input type="radio" name="scope" value="intern" checked><span>intern</span></label>
+      <label class="check"><input type="radio" name="scope" value="extern"><span>extern</span></label>
+    </fieldset>
+    <label>Kanal<select name="channel">{{range opts "chan"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label>Gegenüber (Art)<select name="party_type">{{range opts "party"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label>Gegenüber (Name / Organisation)<input name="party" placeholder="z. B. BSI-Lagezentrum, Hr. Müller (Versicherung)"></label>
+    <label>Zeitpunkt<input type="datetime-local" name="occurred_at"></label>
+    <label class="span2">Betreff <span class="req">*</span><input name="subject" required></label>
+    <label>TLP<select name="tlp">{{range opts "tlp"}}<option value="{{.Key}}" {{if eq .Key $in.TLP}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+    <label class="span3">Inhalt / Wortlaut / Gesprächsnotiz<textarea name="content" rows="5"></textarea></label>
+    <label class="check"><input type="checkbox" name="needs_reply" value="1"><span>Eingang: Antwort erforderlich</span></label>
+    <label>Antwort bis<input type="datetime-local" name="reply_due"></label>
+    <label>Ausgang: Stand<select name="send_state"><option value="versendet">bereits versendet / geführt</option><option value="entwurf">Entwurf</option></select>
+      <small class="muted">Externe Ausgänge gehen ohne Leitungsrolle immer zur Freigabe.</small></label>
+    <button class="btn primary">Dokumentieren</button>
+  </form>
+</details>
+{{end}}
+<section class="card" data-live-region="comms">
+  <h2>Kommunikation</h2>
+  <ol class="comms">
+  {{range .Comms}}
+    <li class="comm dir-{{.Direction}} cs-{{.Status}} {{if .ReplyOverdue}}over{{end}}">
+      <div class="comm-head">
+        <span class="tag {{if eq .Direction "ein"}}ok{{end}}">{{if eq .Direction "ein"}}⇩ Eingang{{else}}⇧ Ausgang{{end}}</span>
+        <span class="tag {{if eq .Scope "extern"}}warn{{end}}">{{.Scope}}</span>
+        <span class="tag">{{lab "chan" .Channel}}</span>
+        <b>{{.Subject}}</b>
+        <span class="muted small">{{if eq .Direction "ein"}}von{{else}}an{{end}} {{lab "party" .PartyType}}{{if .Party}} – {{.Party}}{{end}} · {{dt .OccurredAt}} · erfasst von {{name $d.Names .CreatedBy}} · TLP:{{.TLP}}</span>
+      </div>
+      {{if .Content}}<div class="pre comm-body">{{.Content}}</div>{{end}}
+      <div class="comm-foot">
+        <span class="cstat cstat-{{.Status}}">{{lab "cstat" .Status}}</span>
+        {{if .NeedsReply}}{{if .OpenRequest}}<span class="small">Antwort {{if not .ReplyDue.IsZero}}bis {{dt .ReplyDue}} (<span data-due="{{unix .ReplyDue}}">{{until .ReplyDue}}</span>){{else}}erforderlich{{end}}</span>{{end}}{{end}}
+        {{if .ApprovedBy}}<span class="small muted">freigegeben von {{name $d.Names .ApprovedBy}} {{dt .ApprovedAt}}</span>{{end}}
+        {{if $d.CanEdit}}
+        <form method="post" action="/incidents/{{$in.ID}}/comms/{{.ID}}" class="inline">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="kommunikation">
+          {{if .OpenRequest}}
+            <button class="btn small" name="status" value="in_bearbeitung">in Bearbeitung</button>
+            <button class="btn small primary" name="status" value="beantwortet">beantwortet</button>
+          {{else if eq .Status "entwurf"}}
+            <button class="btn small" name="status" value="{{if eq .Scope "extern"}}zur_freigabe{{else}}versendet{{end}}">{{if eq .Scope "extern"}}zur Freigabe{{else}}als versendet markieren{{end}}</button>
+          {{else if eq .Status "zur_freigabe"}}
+            {{if $d.CanLead}}<button class="btn small primary" name="status" value="freigegeben" data-confirm="Externe Kommunikation freigeben?">freigeben</button>
+            <button class="btn small" name="status" value="entwurf">zurück an Entwurf</button>{{else}}<span class="small muted">wartet auf Freigabe durch die Leitung</span>{{end}}
+          {{else if eq .Status "freigegeben"}}
+            <button class="btn small primary" name="status" value="versendet">als versendet markieren</button>
+          {{end}}
+        </form>
+        {{end}}
+      </div>
+    </li>
+  {{else}}<li class="muted">Noch keine Kommunikation dokumentiert.</li>{{end}}
+  </ol>
+</section>
+{{end}}
+
+{{/* =================== SYSTEME =================== */}}
+{{if eq .Tab "systeme"}}
+{{if .CanEdit}}
+<details class="card formcard" id="asset-form" {{if not .Assets}}open{{end}}>
+  <summary><b>+ Betroffenes / untersuchtes System erfassen</b></summary>
+  <form method="post" action="/incidents/{{$in.ID}}/assets" class="taskform">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>Name <span class="req">*</span><input name="name" required placeholder="FS01, Max Mustermann, SAP-PRD …"></label>
+    <label>Art<select name="kind">{{range opts "akind"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label>Kennung<input name="identifier" placeholder="Hostname, IP, UPN, URL"></label>
+    <label>Verantwortlich<input name="owner"></label>
+    <label>Kritikalität<select name="criticality"><option value="">–</option>{{range opts "prio"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label>Status<select name="status">{{range opts "astat"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+    <label class="span3">Notizen<textarea name="notes" rows="2"></textarea></label>
+    <button class="btn primary">Erfassen</button>
+  </form>
+</details>
+{{end}}
+<section class="card" data-live-region="assets">
+  <h2>Systeme & Konten</h2>
+  <div class="tablewrap flat">
+  <table class="tasks">
+    <thead><tr><th>System</th><th>Art</th><th>Kennung</th><th>Verantwortlich</th><th>Status</th><th>Verlauf</th></tr></thead>
+    <tbody>
+    {{range .Assets}}
+    <tr class="as-{{.Status}}">
+      <td><b>{{.Name}}</b>{{if .Criticality}}<br><span class="prio prio-{{.Criticality}}">Kritikalität {{lab "prio" .Criticality}}</span>{{end}}</td>
+      <td>{{lab "akind" .Kind}}</td>
+      <td><code>{{.Identifier}}</code></td>
+      <td>{{.Owner}}</td>
+      <td>{{if $d.CanEdit}}
+        <form method="post" action="/incidents/{{$in.ID}}/assets/{{.ID}}" class="stack">
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          {{$as := .Status}}<select name="status" class="astat astat-{{.Status}}">{{range opts "astat"}}<option value="{{.Key}}" {{if eq .Key $as}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+          <input name="note" placeholder="Befund / Notiz">
+          <button class="btn small">Aktualisieren</button>
+        </form>
+        {{else}}<span class="astat astat-{{.Status}}">{{lab "astat" .Status}}</span>{{end}}</td>
+      <td class="small pre">{{.Notes}}<div class="muted">zuletzt {{dt .UpdatedAt}} · {{name $d.Names .UpdatedBy}}</div></td>
+    </tr>
+    {{else}}<tr><td colspan="6" class="muted">Noch keine Systeme erfasst.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+
+{{/* =================== IOCs =================== */}}
+{{if eq .Tab "iocs"}}
+<div class="grid2 wide-left">
+<section class="card" data-live-region="iocs">
+  <div class="cardhead"><h2>Indicators of Compromise</h2>
+    <span class="small"><a href="/incidents/{{$in.ID}}/iocs.txt">Alle exportieren</a> · {{range opts "ioc"}}<a href="/incidents/{{$in.ID}}/iocs.txt?type={{.Key}}">{{.Key}}</a> {{end}}</span></div>
+  <div class="tablewrap flat">
+  <table class="tasks">
+    <thead><tr><th>Typ</th><th>Wert</th><th>Beschreibung</th><th>TLP</th><th>Erfasst</th><th></th></tr></thead>
+    <tbody>
+    {{range .IOCs}}
+    <tr><td>{{lab "ioc" .Type}}</td><td><code class="ioc">{{.Value}}</code></td><td>{{.Description}}</td><td><span class="tlp tlp-{{.TLP}}">{{.TLP}}</span></td>
+      <td class="small">{{dt .CreatedAt}}<br>{{name $d.Names .CreatedBy}}</td>
+      <td>{{if $d.CanEdit}}<form method="post" action="/incidents/{{$in.ID}}/iocs/{{.ID}}/delete"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button class="linkbtn" data-confirm="IOC entfernen?">entfernen</button></form>{{end}}</td></tr>
+    {{else}}<tr><td colspan="6" class="muted">Keine IOCs erfasst.</td></tr>{{end}}
+    </tbody>
+  </table>
+  </div>
+</section>
+{{if .CanEdit}}
+<aside><form class="card sticky" method="post" action="/incidents/{{$in.ID}}/iocs">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <h2>IOCs erfassen</h2>
+  <label>Typ<select name="type">{{range opts "ioc"}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+  <label>Wert(e) <span class="req">*</span><textarea name="value" rows="5" required placeholder="ein Wert pro Zeile"></textarea></label>
+  <label>Beschreibung<input name="description" placeholder="z. B. C2-Server, Phishing-Absender"></label>
+  <label>TLP<select name="tlp">{{range opts "tlp"}}<option value="{{.Key}}" {{if eq .Key $in.TLP}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+  <button class="btn primary">Hinzufügen</button>
+</form></aside>
+{{end}}
+</div>
+{{end}}
+
+{{/* =================== MELDEPFLICHTEN =================== */}}
+{{if eq .Tab "meldepflichten"}}
+<section class="card" data-live-region="obligations">
+  <h2>Melde- und Benachrichtigungspflichten</h2>
+  <p class="muted small">Fristbeginn: Kenntnisnahme am <b>{{dt $in.AwarenessAt}}</b>. Auch die begründete Entscheidung, <i>nicht</i> zu melden, wird dokumentiert.</p>
+  {{range .Obligations}}
+  <div class="obl obl-{{.Status}} {{if .Overdue}}over{{end}}">
+    <div class="obl-head">
+      <div><b>{{.Label}}</b> <span class="muted small">{{.Authority}} · {{.Hours}} h{{if .After}} nach Vorgängermeldung{{else}} nach Kenntnisnahme{{end}}</span></div>
+      <div class="obl-due">{{if .Open}}fällig {{dt .DueAt}} · <b data-due="{{unix .DueAt}}">{{until .DueAt}}</b>
+        {{else if eq .Status "erledigt"}}<span class="tag ok">erledigt {{dt .DoneAt}}</span>{{if .DoneAt.After .DueAt}} <span class="tag bad">verspätet</span>{{end}}
+        {{else}}<span class="tag">nicht erforderlich</span>{{end}}</div>
+    </div>
+    {{if or .Reference .Note}}<div class="small">{{if .Reference}}Referenz/Az.: <b>{{.Reference}}</b> {{end}}{{if .Note}}<span class="pre">{{.Note}}</span>{{end}}{{if .DoneBy}} <span class="muted">– {{name $d.Names .DoneBy}}</span>{{end}}</div>{{end}}
+    {{if $d.CanLead}}
+    <form method="post" action="/incidents/{{$in.ID}}/obligations/{{.ID}}" class="inline obl-form">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}">
+      {{if .Open}}
+        <input name="reference" placeholder="Aktenzeichen / Ticket" value="{{.Reference}}">
+        <input type="datetime-local" name="done_at" title="Zeitpunkt der Meldung (leer = jetzt)">
+        <input name="note" placeholder="Notiz / Begründung (Pflicht bei „nicht erforderlich“)">
+        <button class="btn small primary" name="status" value="erledigt">gemeldet</button>
+        <button class="btn small" name="status" value="nicht_erforderlich">nicht erforderlich</button>
+      {{else}}
+        <button class="btn small ghost" name="status" value="offen" data-confirm="Frist wieder öffnen?">wieder öffnen</button>
+      {{end}}
+    </form>
+    {{end}}
+  </div>
+  {{else}}<p class="muted">Für diesen Vorfall sind noch keine Meldepflichten aktiviert.</p>{{end}}
+</section>
+{{if and .CanLead .Inactive}}
+<section class="card">
+  <h2>Weitere Meldepflichten prüfen</h2>
+  {{range .Inactive}}
+  <form method="post" action="/incidents/{{$in.ID}}/obligations" class="regrow">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="regulation" value="{{.Key}}">
+    <div><b>{{.Label}}</b> <span class="muted small">{{.Authority}}</span><br><small class="muted">{{.Hint}}</small>
+      <br><small>{{range .Deadlines}}<span class="tag">{{.Label}} · {{.Hours}} h</span>{{end}}</small></div>
+    <button class="btn small">Aktivieren</button>
+  </form>
+  {{end}}
+</section>
+{{end}}
+{{end}}
+
+{{/* =================== STAB =================== */}}
+{{if eq .Tab "stab"}}
+<div class="grid2 wide-left">
+<section class="card" data-live-region="members">
+  <h2>Stab / Beteiligte</h2>
+  <table class="tasks">
+    <thead><tr><th>Person</th><th>Funktion</th><th>Rolle im Vorfall</th><th>seit</th><th></th></tr></thead>
+    <tbody>
+    {{range .Members}}
+    <tr><td><b>{{.Display}}</b><br><small class="muted">{{.Username}}</small></td><td>{{fn .Function}}</td><td>{{lab "irole" .Role}}</td>
+      <td class="small">{{dt .AddedAt}}<br>{{name $d.Names .AddedBy}}</td>
+      <td>{{if and $d.CanLead (ne (lower .Username) (lower $in.Lead))}}<form method="post" action="/incidents/{{$in.ID}}/members/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="username" value="{{.Username}}"><button class="linkbtn" data-confirm="{{.Display}} aus dem Stab entfernen?">entfernen</button></form>{{end}}</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  <p class="muted small">{{if $in.Confidential}}Vertraulicher Vorfall: <b>nur</b> diese Personen (und Administratoren) sehen den Vorfall.{{else}}Nicht vertraulich: Alle Nutzer mit Rolle sehen den Vorfall; Bearbeiter dürfen dokumentieren, globale Leitung darf steuern. Eine Rolle hier hebt die Rechte im Vorfall an.{{end}}</p>
+</section>
+{{if .CanLead}}
+<aside><form class="card sticky" method="post" action="/incidents/{{$in.ID}}/members">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <h2>Person hinzufügen / ändern</h2>
+  <label>Benutzername<input name="username" list="userlist" required></label>
+  <label>Stabsfunktion<select name="function">{{range fns}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+  <label>Rolle<select name="role">{{range opts "irole"}}<option value="{{.Key}}" {{if eq .Key "mitglied"}}selected{{end}}>{{.Label}} – {{.Hint}}</option>{{end}}</select></label>
+  <button class="btn primary">Speichern</button>
+  <p class="muted small">Personen erscheinen in der Auswahl, sobald sie sich einmal angemeldet haben.</p>
+</form></aside>
+{{end}}
+</div>
+{{end}}
+
+{{/* =================== NACHBEREITUNG =================== */}}
+{{if eq .Tab "nachbereitung"}}
+<div class="grid2 wide-left">
+<section class="card">
+  <h2>Nachbereitung / Lessons Learned</h2>
+  {{if .CanLead}}
+  <form method="post" action="/incidents/{{$in.ID}}/post">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>Ursache (Root Cause)<textarea name="root_cause" rows="5">{{$in.RootCause}}</textarea></label>
+    <label>Lessons Learned – was lief gut, was nicht?<textarea name="lessons" rows="6">{{$in.Lessons}}</textarea></label>
+    <label>Verbesserungsmaßnahmen (mit Verantwortlichen und Terminen)<textarea name="improvements" rows="6">{{$in.Improvements}}</textarea></label>
+    <button class="btn primary">Speichern</button>
+  </form>
+  {{else}}
+  <dl class="sitrep"><dt>Ursache</dt><dd>{{or $in.RootCause "–"}}</dd><dt>Lessons Learned</dt><dd>{{or $in.Lessons "–"}}</dd><dt>Maßnahmen</dt><dd>{{or $in.Improvements "–"}}</dd></dl>
+  {{end}}
+</section>
+<aside><section class="card">
+  <h2>Kennzahlen</h2>
+  <dl class="kv">
+    <dt>Entdeckung → Kenntnis</dt><dd>{{span $in.DetectedAt $in.AwarenessAt}}</dd>
+    <dt>Beginn → Entdeckung</dt><dd>{{span $in.OccurredAt $in.DetectedAt}}</dd>
+    <dt>Kenntnis → Eindämmung</dt><dd>{{span $in.AwarenessAt $in.ContainedAt}}</dd>
+    <dt>Kenntnis → Behebung</dt><dd>{{span $in.AwarenessAt $in.ResolvedAt}}</dd>
+    <dt>Gesamtdauer</dt><dd>{{span $in.AwarenessAt $in.ClosedAt}}</dd>
+    <dt>Aufgaben</dt><dd>{{len .Tasks}} ({{.Counts.OpenTasks}} offen)</dd>
+    <dt>Lagemeldungen</dt><dd>{{len .Sitreps}}</dd>
+  </dl>
+  <p class="muted small">Vor dem Abschluss: alle Aufgaben erledigt, Meldepflichten dokumentiert, Systeme wiederhergestellt, Abschlussbericht über „Bericht“ erstellen.</p>
+</section></aside>
+</div>
+{{end}}
+
+{{/* =================== AUDIT =================== */}}
+{{if eq .Tab "protokoll"}}
+<section class="card">
+  <h2>Audit-Log dieses Vorfalls</h2>
+  <p class="muted small">Technisches, unveränderliches Prüfprotokoll aller Änderungen inkl. IP-Adresse. Sichtbar für die Leitung des Vorfalls.</p>
+  <div class="tablewrap flat">
+  <table class="tasks audit">
+    <thead><tr><th>Zeit</th><th>Benutzer</th><th>IP</th><th>Aktion</th><th>Details</th></tr></thead>
+    <tbody>{{range .Audit}}<tr><td class="nowrap">{{dt .At}}</td><td>{{.Actor}}</td><td><code>{{.IP}}</code></td><td>{{.Action}}</td><td class="pre small">{{.Detail}}</td></tr>{{end}}</tbody>
+  </table>
+  </div>
+</section>
+{{end}}
+</div>
+{{end}}
+{{end}}
+
+{{define "recitem"}}{{$r := .R}}
+<div class="rec rec-{{$r.Priority}}">
+  <div class="rec-head"><span class="rprio rprio-{{$r.Priority}}">{{prioLabel $r.Priority}}</span> <b>{{$r.Title}}</b></div>
+  {{if not .Compact}}<p class="rec-why">{{$r.Why}}</p>{{else}}<details class="rec-more"><summary>Warum?</summary><p class="rec-why">{{$r.Why}}</p></details>{{end}}
+  {{if $r.Ref}}<div class="rec-ref">Grundlage: {{$r.Ref}}</div>{{end}}
+  <div class="rec-actions">
+    {{if eq $r.Action.Kind "link"}}
+      <a class="btn small" href="/incidents/{{.ID}}?tab={{$r.Action.Tab}}">{{$r.Action.Label}}</a>
+    {{else if and .Edit (or .Lead (not $r.Action.NeedsLead))}}
+      <form method="post" action="/incidents/{{.ID}}/recs" class="inline">
+        <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="key" value="{{$r.Key}}"><input type="hidden" name="return" value="{{.Ret}}">
+        <button class="btn small primary" name="op" value="apply">{{$r.Action.Label}}</button>
+      </form>
+    {{else if $r.Action.NeedsLead}}<span class="small muted">Umsetzung durch die Leitung</span>{{end}}
+    {{if and .Edit (not $r.Sticky)}}
+    <details class="rec-dismiss"><summary class="small">verwerfen …</summary>
+      <form method="post" action="/incidents/{{.ID}}/recs" class="inline">
+        <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="key" value="{{$r.Key}}"><input type="hidden" name="return" value="{{.Ret}}">
+        <input name="reason" required minlength="3" placeholder="Begründung (wird dokumentiert)">
+        <button class="btn small" name="op" value="dismiss">Verwerfen</button>
+      </form>
+    </details>{{end}}
+  </div>
+</div>
+{{end}}
+
+{{define "phasecheck"}}{{with .P}}{{if .Next}}
+<div class="phasecheck {{if .Ready}}ready{{end}}">
+  <h3>Bereit für „{{lab "phase" .Next}}“?</h3>
+  {{if .Criteria}}<ul class="findings">{{range .Criteria}}<li class="{{if .OK}}ok{{else}}fail{{end}}">{{.Label}}</li>{{end}}</ul>
+  {{else}}<p class="muted small">Keine Kriterien hinterlegt.</p>{{end}}
+</div>
+{{end}}{{end}}{{end}}

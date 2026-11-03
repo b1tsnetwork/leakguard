@@ -119,57 +119,83 @@ func normalizeLogin(u string) string {
 	return u
 }
 
-// Authenticate prüft Anmeldedaten und Gruppenmitgliedschaft und liefert den Anzeigenamen.
-func (c *Client) Authenticate(username, password string) (string, string, error) {
+// Identity ist ein angemeldeter Benutzer.
+type Identity struct {
+	Username string
+	Display  string
+	Mail     string
+	DN       string
+	Role     string
+}
+
+// RoleGroups ordnet einer Rolle AD-Gruppen zu (Reihenfolge = Priorität, höchste zuerst).
+type RoleGroups struct {
+	Role   string
+	Groups []string
+}
+
+// Authenticate prüft Anmeldedaten und ermittelt die höchste Rolle über die Gruppenmitgliedschaft.
+func (c *Client) Authenticate(username, password string, roles []RoleGroups) (Identity, error) {
+	var id Identity
 	username = normalizeLogin(username)
 	if username == "" || password == "" { // leeres Kennwort = unauthenticated bind -> immer ablehnen
-		return "", "", ErrInvalidCredentials
+		return id, ErrInvalidCredentials
 	}
 	conn, err := c.serviceConn()
 	if err != nil {
-		return "", "", err
+		return id, err
 	}
 	defer conn.Close()
 
 	filter := strings.ReplaceAll(c.cfg.LoginFilter, "{u}", ldap.EscapeFilter(username))
 	sr, err := conn.Search(ldap.NewSearchRequest(c.cfg.BaseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 2, 0, false,
-		filter, []string{"dn", "sAMAccountName", "displayName", "userAccountControl"}, nil))
+		filter, []string{"dn", "sAMAccountName", "displayName", "mail", "userAccountControl"}, nil))
 	if err != nil {
-		return "", "", fmt.Errorf("benutzersuche: %w", err)
+		return id, fmt.Errorf("benutzersuche: %w", err)
 	}
 	if len(sr.Entries) != 1 {
-		return "", "", ErrInvalidCredentials
+		return id, ErrInvalidCredentials
 	}
 	e := sr.Entries[0]
 	if uac, _ := strconv.Atoi(e.GetAttributeValue("userAccountControl")); uac&uacDisabled != 0 {
-		return "", "", ErrInvalidCredentials
+		return id, ErrInvalidCredentials
 	}
-	ok, err := c.inAnyGroup(conn, e.DN, c.cfg.AdminGroups)
-	if err != nil {
-		return "", "", err
+	role := ""
+	for _, rg := range roles {
+		if len(rg.Groups) == 0 {
+			continue
+		}
+		ok, err := c.inAnyGroup(conn, e.DN, rg.Groups)
+		if err != nil {
+			return id, err
+		}
+		if ok {
+			role = rg.Role
+			break
+		}
 	}
 
 	// Kennwort mit eigener Verbindung prüfen (Gruppenprüfung erst danach offenlegen).
 	uconn, err := c.dial()
 	if err != nil {
-		return "", "", err
+		return id, err
 	}
 	defer uconn.Close()
 	if err := uconn.Bind(e.DN, password); err != nil {
 		if ldap.IsErrorWithCode(err, ldap.LDAPResultInvalidCredentials) {
-			return "", "", ErrInvalidCredentials
+			return id, ErrInvalidCredentials
 		}
-		return "", "", fmt.Errorf("bind: %w", err)
+		return id, fmt.Errorf("bind: %w", err)
 	}
-	if !ok {
-		return "", "", ErrNotAuthorized
+	if role == "" {
+		return id, ErrNotAuthorized
 	}
-	sam := e.GetAttributeValue("sAMAccountName")
-	disp := e.GetAttributeValue("displayName")
-	if disp == "" {
-		disp = sam
+	id = Identity{Username: e.GetAttributeValue("sAMAccountName"), Display: e.GetAttributeValue("displayName"),
+		Mail: e.GetAttributeValue("mail"), DN: e.DN, Role: role}
+	if id.Display == "" {
+		id.Display = id.Username
 	}
-	return sam, disp, nil
+	return id, nil
 }
 
 // MemberOfAny prüft, ob das Konto (ggf. verschachtelt) Mitglied einer der Gruppen ist.

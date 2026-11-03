@@ -35,9 +35,8 @@ ldap:
   base_dn: "DC=firma,DC=local"
   # domain_dn: "DC=firma,DC=local"   # Standard: aus base_dn abgeleitet
 
-  # Wer sich an LeakGuard anmelden darf (eine der Gruppen genügt)
-  admin_groups:
-    - "CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"
+  # Veraltet (weiterhin unterstützt): admin_groups = Gruppen mit Admin-Rolle, wenn "roles" leer ist.
+  # admin_groups: ["CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"]
   nested_groups: true   # verschachtelte Gruppen berücksichtigen (LDAP_MATCHING_RULE_IN_CHAIN)
 
   # Gruppen, deren Mitglieder als privilegiert gelten (CN oder DN). Leer = Standard-AD-Admin-Gruppen (DE/EN).
@@ -150,7 +149,128 @@ mail:
     Mit freundlichen Grüßen
     Ihre IT-Abteilung
 
-# Lokales Konto am AD vorbei – NUR für Entwicklung/Tests.
+# Rollen – AD-Gruppen (DN). Die höchste zutreffende Rolle gilt; ohne Rolle keine Anmeldung.
+#   admin      – alles, inkl. vertraulicher Vorfälle, Vorlagen, globales Audit-Log
+#   leitung    – Vorfälle steuern (Phase, Stab, Meldepflichten, Freigaben), sieht alle nicht vertraulichen Vorfälle
+#   bearbeiter – Vorfälle und Leak-Fälle anlegen und dokumentieren
+#   leser      – nur lesen (z. B. Geschäftsleitung, Datenschutz)
+# Vertrauliche Vorfälle sehen nur eingetragene Stabsmitglieder (und Admins) – need-to-know.
+roles:
+  admin:      ["CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"]
+  leitung:    ["CN=GG-ISMS-Leitung,OU=Groups,DC=firma,DC=local"]
+  bearbeiter: ["CN=GG-IT-Security,OU=Groups,DC=firma,DC=local"]
+  leser:      []
+
+# Kommandozentrale: Sicherheitsvorfälle & Lagezentrum
+incident:
+  number_prefix: "SI"          # Vorfallnummern SI-2026-0001
+
+  # Behördenprofil – steuert Meldewege, Ansprechstellen und Handlungsempfehlungen.
+  # Leere Felder werden je nach Typ sinnvoll vorbelegt.
+  org:
+    type: "kommune"            # kommune | land | bund | sonstige
+    name: "Stadtverwaltung Musterstadt"
+    cert: ""                   # z. B. "CERT NRW", "CERT-BW", "Bayern-CERT"; Standard: Landes-CERT bzw. CERT-Bund
+    data_protection_authority: ""   # z. B. "LDI NRW"; Standard: LfD bzw. BfDI
+    police: ""                 # Standard: ZAC des LKA
+    supervisory: ""            # Standard: Kommunalaufsicht / vorgesetzte Behörde / Fachaufsicht
+    it_provider: ""            # z. B. "regio iT", "Dataport", "ITZBund"
+    leadership: ""             # z. B. "Oberbürgermeisterin", "Verwaltungsvorstand"
+    council: ""                # z. B. "Rat der Stadt (Ältestenrat)", "Kreistag"
+    nis2: false                # true = NIS2/BSIG-Meldung (24 h) wird bei P1/P2 kritisch empfohlen
+
+  # Benachrichtigungen (benötigt smtp)
+  notify:
+    new_incident_min_severity: "P2"     # ab dieser Schwere Mail bei neuem Vorfall (P1 = nur kritisch)
+    new_incident_recipients: []         # z. B. ["isb@firma.de", "it-leitung@firma.de"]
+    task_assigned: true                 # Zugewiesene per Mail informieren (Adresse aus dem AD)
+
+  # Alle folgenden Listen sind optional – weggelassen = eingebaute Standardwerte.
+  # Kategorien (angelehnt an die ENISA-Referenztaxonomie, ergänzt um Ausfall Fachverfahren/Bürgerdienste).
+  # Schlüssel nicht nachträglich ändern. Standard zusätzlich: service_outage.
+  # categories:
+  #   - {key: ransomware,         label: "Ransomware / Verschlüsselung"}
+  #   - {key: malware,            label: "Schadsoftware"}
+  #   - {key: phishing,           label: "Phishing / Social Engineering"}
+  #   - {key: credential_leak,    label: "Kompromittierte Zugangsdaten"}
+  #   - {key: account_compromise, label: "Kompromittiertes Konto / unbefugter Zugriff"}
+  #   - {key: data_breach,        label: "Datenabfluss / Datenschutzverletzung"}
+  #   - {key: dos,                label: "Verfügbarkeit / DDoS"}
+  #   - {key: vulnerability,      label: "Schwachstelle / Ausnutzung"}
+  #   - {key: fraud,              label: "Betrug (CEO-Fraud, Rechnungsbetrug)"}
+  #   - {key: insider,            label: "Insider / Fehlverhalten"}
+  #   - {key: device_loss,        label: "Verlust / Diebstahl von Geräten"}
+  #   - {key: supply_chain,       label: "Dienstleister / Lieferkette"}
+  #   - {key: other,              label: "Sonstiges"}
+
+  # Stabsfunktionen (angelehnt an BSI-Standard 200-4 / FwDV 100). Standard zusätzlich: isb, bcm,
+  # staff_council (Personalrat), it_provider, process_owner (Fachverfahren), vs (Geheimschutz).
+  # functions:
+  #   - {key: lead,      label: "Leitung Stab / Incident Commander"}
+  #   - {key: s1,        label: "S1 Personal & Innerer Dienst"}
+  #   - {key: s2,        label: "S2 Lage & Dokumentation"}
+  #   - {key: s3,        label: "S3 Einsatz / technische Maßnahmen"}
+  #   - {key: s4,        label: "S4 Versorgung & Beschaffung"}
+  #   - {key: s5,        label: "S5 Presse & Kommunikation"}
+  #   - {key: s6,        label: "S6 IT & Kommunikationstechnik"}
+  #   - {key: forensics, label: "Forensik / Analyse"}
+  #   - {key: dpo,       label: "Datenschutz"}
+  #   - {key: legal,     label: "Recht / Compliance"}
+  #   - {key: external,  label: "Externer Dienstleister / IR-Team"}
+  #   - {key: member,    label: "Mitarbeit"}
+
+  # Melde- und Benachrichtigungspflichten. Weggelassen = Standardwerte, abgeleitet aus "org":
+  #   dsgvo    – Art. 33/34 DSGVO an die Datenschutz-Aufsicht (72 h)
+  #   cert     – Erstmeldung an das CERT (24 h) + Abschlussmeldung (30 Tage)
+  #   aufsicht – Unterrichtung im Dienstweg (24 h)
+  #   nis2     – § 32 BSIG (24 h / 72 h / 1 Monat) – nur für Bundesverwaltung bzw. NIS2-pflichtige Einrichtungen
+  # Fristen in Stunden ab Kenntnisnahme; mit "after" ab Erledigung einer anderen Frist derselben Pflicht.
+  # Wird die Liste angegeben, ersetzt sie die Standardwerte vollständig. Bitte mit DSB/Justiziariat abstimmen.
+  # regulations:
+  #   - key: dsgvo
+  #     label: "DSGVO – Verletzung des Schutzes personenbezogener Daten"
+  #     authority: "Landesbeauftragte/r für Datenschutz"
+  #     deadlines:
+  #       - {key: dsgvo_33, label: "Meldung an LfD (Art. 33)", hours: 72}
+  #       - {key: dsgvo_34, label: "Benachrichtigung Betroffener prüfen (Art. 34)", hours: 72}
+  #   - key: cert
+  #     label: "Meldung an CERT-NRW"
+  #     authority: "CERT NRW"
+  #     deadlines:
+  #       - {key: cert_first, label: "Erstmeldung", hours: 24}
+  #       - {key: cert_final, label: "Abschlussmeldung", hours: 720, after: cert_first}
+  #   - key: ksa
+  #     label: "Kommunaler Schadenausgleich / Versicherung"
+  #     authority: "KSA"
+  #     deadlines: [{key: ksa_meldung, label: "Schadenanzeige", hours: 48}]
+
+  # Checklisten je Phase: erscheinen als Empfehlung, bis eine gleichnamige Aufgabe existiert oder die
+  # Empfehlung begründet verworfen wurde. Weggelassen = Standard-Checklisten nach BSI DER.2.1/DER.2.2,
+  # BSI-Standard 200-4 und NIST SP 800-61. Phasen: gemeldet, triage, analyse, eindaemmung, beseitigung,
+  # wiederherstellung, nachbereitung.
+  # checklists:
+  #   - phase: wiederherstellung
+  #     steps:
+  #       - title: "Freigabe zur Wiederinbetriebnahme durch Fachverfahrensverantwortliche"
+  #         why: "Fachliche Abnahme dokumentiert Funktionsfähigkeit und Datenrichtigkeit."
+  #         ref: "BSI-Standard 200-4"
+  #         function: process_owner
+  #         priority: mittel
+  #         due_hours: 24
+  #         categories: []        # leer = alle Kategorien
+  #         severities: [P1, P2]  # leer = alle Schweregrade
+
+  # Playbooks: Standard-Aufgaben je Kategorie (beim Anlegen optional übernehmen).
+  # due_hours = Frist ab Kenntnisnahme. Weggelassen = eingebaute Playbooks für
+  # ransomware, phishing, account_compromise, data_breach, malware.
+  # playbooks:
+  #   - category: ransomware
+  #     tasks:
+  #       - {title: "Betroffene Systeme vom Netz trennen (nicht ausschalten)", function: s3, priority: hoch, due_hours: 1}
+  #       - {title: "Backups prüfen und offline sichern", function: s6, priority: hoch, due_hours: 2}
+  #       - {title: "Meldepflichten prüfen", function: dpo, priority: hoch, due_hours: 12}
+
+# Lokales Konto am AD vorbei – NUR für Entwicklung/Tests (Rolle: admin).
 # Hash erzeugen: leakguard hash-password
 dev_admin:
   enabled: false

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"leakguard/internal/blocklist"
+	"leakguard/internal/config"
 	"leakguard/internal/engine"
 	"leakguard/internal/mailer"
 	"leakguard/internal/model"
@@ -154,6 +155,8 @@ type caseData struct {
 	Password        string
 	PasswordErr     string
 	DenyRegex       string
+	Incident        *model.Incident
+	CanEdit         bool
 }
 
 func (s *Server) loadCase(w http.ResponseWriter, r *http.Request) *model.Case {
@@ -222,10 +225,15 @@ func (s *Server) handleCase(w http.ResponseWriter, r *http.Request) {
 	a := c.Checks.Actions
 	allDone := (!a.AdminTodo || c.AdminTodoDone) && (!a.UserMail || !c.UserMailAt.IsZero()) && (!a.AdminMail || !c.AdminMailAt.IsZero())
 
+	var inc *model.Incident
+	if in, err := s.store.IncidentByLeakCase(r.Context(), c.ID); err == nil && s.store.CanSee(r.Context(), s.viewer(r), in.ID) {
+		inc = in
+	}
 	s.render(w, r, "case", page{Title: "Fall " + c.CaseNumber, Nav: "list", Data: caseData{
 		Case: c, Events: evs, Snippets: engine.PowerShellSnippets(c), UserMail: userMail, AdminMail: adminMail,
 		MailEnabled: s.mailer.Enabled(), BindTestAllowed: s.engine.BindTestAllowed(), AllDone: allDone,
-		Password: pw, PasswordErr: pwErr, DenyRegex: blocklist.DenyRegex(c.Checks.Blocklist.Words)}})
+		Password: pw, PasswordErr: pwErr, DenyRegex: blocklist.DenyRegex(c.Checks.Blocklist.Words),
+		Incident: inc, CanEdit: hasRole(se, config.RoleResponder)}})
 }
 
 func (s *Server) touch(r *http.Request, c *model.Case) {

@@ -1,12 +1,14 @@
-# LeakGuard – Beispielkonfiguration
+# LeakGuard – Konfiguration
+# Im Docker-Container liegt diese Datei unter /data/config.yaml (wird beim ersten Start angelegt).
+# Relative Pfade (db_path, ca_file, blocklist_file, tls.*) beziehen sich auf das Verzeichnis dieser Datei.
 # Geheimnisse können statt hier auch per Umgebungsvariable gesetzt werden:
 #   LEAKGUARD_SECRET, LEAKGUARD_LDAP_BIND_PASSWORD, LEAKGUARD_SMTP_PASSWORD, LEAKGUARD_DEV_ADMIN_HASH
 
 listen: ":8080"
 base_url: "https://leakguard.firma.local"   # für Links in Admin-Mails
-db_path: "data/leakguard.db"   # im Docker-Container: "/data/leakguard.db"
+db_path: "data/leakguard.db"         # -> /data/leakguard.db im Container
 
-# Mind. 32 zufällige Zeichen, z. B.: openssl rand -base64 48
+# Mind. 32 zufällige Zeichen (beim Anlegen automatisch erzeugt), sonst z. B.: openssl rand -base64 48
 # Wird für den HMAC-Fingerabdruck der Kennwörter verwendet -> NICHT nachträglich ändern,
 # sonst funktioniert die Erkennung identischer Kennwörter über alte Fälle nicht mehr.
 secret: ""
@@ -22,7 +24,7 @@ tls:
 
 ldap:
   url: "ldaps://dc01.firma.local:636"
-  # ca_file: "/etc/leakguard/firma-root-ca.pem"   # Root-CA der DC-Zertifikate (wenn nicht im System-Store)
+  # ca_file: "firma-root-ca.pem"   # Root-CA der DC-Zertifikate -> /data/firma-root-ca.pem
   insecure_skip_verify: false
   timeout_seconds: 10
 
@@ -33,9 +35,8 @@ ldap:
   base_dn: "DC=firma,DC=local"
   # domain_dn: "DC=firma,DC=local"   # Standard: aus base_dn abgeleitet
 
-  # Wer sich an LeakGuard anmelden darf (eine der Gruppen genügt)
-  admin_groups:
-    - "CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"
+  # Veraltet (weiterhin unterstützt): admin_groups = Gruppen mit Admin-Rolle, wenn "roles" leer ist.
+  # admin_groups: ["CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"]
   nested_groups: true   # verschachtelte Gruppen berücksichtigen (LDAP_MATCHING_RULE_IN_CHAIN)
 
   # Gruppen, deren Mitglieder als privilegiert gelten (CN oder DN). Leer = Standard-AD-Admin-Gruppen (DE/EN).
@@ -60,6 +61,68 @@ policy:
   # sonst verfälscht das die Aussage "könnte das AD-Kennwort sein".
   blocklist: []
   blocklist_file: ""
+
+# ManageEngine ADSelfService Plus – "Password Policy Enforcer"
+# ADSSP speichert seine Regeln in der eigenen Datenbank (nicht im AD) – deshalb hier nachpflegen.
+# Ein Verstoß gilt nur dann als Beweis "kann nicht das aktuelle AD-Kennwort sein", wenn
+# native_enforcement: true UND das Kennwort laut pwdLastSet nach active_since gesetzt wurde.
+#
+# Regel-Schreibweisen:
+#   min_uppercase: 1                              -> Komplexitätsanforderung (zählt zu satisfy_at_least)
+#   min_uppercase: {value: 1, mandatory: true}    -> Pflicht (muss immer erfüllt sein)
+#   Alle anderen Regeln (max_*, Wiederholung, Muster …) sind Pflicht;
+#   mit {…, complexity: true} zählen sie stattdessen zu satisfy_at_least.
+#   palindrome: true / dictionary: "datei.txt" / regex: "^...$"
+#   Auskommentiert oder weggelassen = Regel aus.
+adssp:
+  enabled: false
+  policies:                      # erste passende Richtlinie gewinnt
+    - name: "Standard"
+      apply_to:                  # leer = gilt für alle Konten
+        ous: []                  # z. B. "OU=Benutzer,DC=firma,DC=local" (inkl. Unter-OUs)
+        groups: []               # z. B. "CN=GG-Mitarbeiter,OU=Gruppen,DC=firma,DC=local" (verschachtelt, wenn ldap.nested_groups)
+      active_since: "2026-10-01"           # Aktivierungsdatum der Richtlinie
+      native_enforcement: true             # "Enforce this policy in GINA/CP (Ctrl+Alt+Del) screen and ADUC ... Password Sync Agent"
+
+      # Länge (immer Pflicht)
+      min_length: 12
+      max_length: 0                        # 0 = keine Obergrenze
+
+      # Komplexität
+      satisfy_at_least: 3                  # "Password must satisfy at least <n> of the above complexity requirements" (0 = alle)
+      override_complexity_if_length_at_least: 20   # "Override all complexity rules if password length is at least <n>" (0 = aus)
+
+      rules:
+        # --- Zeichen (Mindestanzahl) ---
+        min_uppercase: 1
+        min_lowercase: 1
+        # min_letters: 2                   # Buchstaben insgesamt
+        min_numeric: 1
+        min_special: 1
+        # min_unicode: 1                   # Nicht-ASCII-Buchstaben (ä, ß, é …)
+
+        # --- Zeichen einschränken (Höchstanzahl, 0 = verboten) ---
+        # max_numeric: 6
+        # max_special: 4
+        # max_unicode: 0                   # 0 = Unicode-Zeichen verboten
+        # disallowed_characters: " <>&\""    # diese Zeichen sind verboten
+        # must_not_start_with: "numeric,special"   # Klassen: numeric, special, unicode, uppercase, lowercase
+        # must_not_end_with: "numeric"
+
+        # --- Wiederholung ---
+        max_repeated_characters: 2          # höchstens 2 gleiche Zeichen hintereinander ("aaa" verboten)
+        max_username_sequence: 3            # keine 3 Zeichen am Stück aus dem Benutzernamen
+        # no_username: true                  # Benutzername komplett enthalten
+        # no_display_name: true              # Namensbestandteile ≥ 3 Zeichen
+
+        # --- Muster ---
+        keyboard_sequence: 4   # keine Folge ab 4 Zeichen: qwertz/qwerty/asdf, abcd, 1234, Ziffernblock – auch rückwärts
+        # dictionary: {text: "woerterbuch.txt", value: 4}   # Datei relativ zu dieser Config, ein Wort pro Zeile; value = Mindestwortlänge
+        palindrome: true
+        # regex: "^(?!.*(?i:firma)).*$"      # muss passen (Java/.NET-Syntax, Lookahead erlaubt)
+
+        # --- Kompromittierte Kennwörter (Have I Been Pwned, benötigt hibp.enabled: true) ---
+        # pwned: true
 
 hibp:
   # Abgleich mit Pwned Passwords per k-Anonymität (nur 5 Zeichen des SHA-1-Hashes verlassen das Netz).
@@ -86,7 +149,128 @@ mail:
     Mit freundlichen Grüßen
     Ihre IT-Abteilung
 
-# Lokales Konto am AD vorbei – NUR für Entwicklung/Tests.
+# Rollen – AD-Gruppen (DN). Die höchste zutreffende Rolle gilt; ohne Rolle keine Anmeldung.
+#   admin      – alles, inkl. vertraulicher Vorfälle, Vorlagen, globales Audit-Log
+#   leitung    – Vorfälle steuern (Phase, Stab, Meldepflichten, Freigaben), sieht alle nicht vertraulichen Vorfälle
+#   bearbeiter – Vorfälle und Leak-Fälle anlegen und dokumentieren
+#   leser      – nur lesen (z. B. Geschäftsleitung, Datenschutz)
+# Vertrauliche Vorfälle sehen nur eingetragene Stabsmitglieder (und Admins) – need-to-know.
+roles:
+  admin:      ["CN=GG-LeakGuard-Admins,OU=Groups,DC=firma,DC=local"]
+  leitung:    ["CN=GG-ISMS-Leitung,OU=Groups,DC=firma,DC=local"]
+  bearbeiter: ["CN=GG-IT-Security,OU=Groups,DC=firma,DC=local"]
+  leser:      []
+
+# Kommandozentrale: Sicherheitsvorfälle & Lagezentrum
+incident:
+  number_prefix: "SI"          # Vorfallnummern SI-2026-0001
+
+  # Behördenprofil – steuert Meldewege, Ansprechstellen und Handlungsempfehlungen.
+  # Leere Felder werden je nach Typ sinnvoll vorbelegt.
+  org:
+    type: "kommune"            # kommune | land | bund | sonstige
+    name: "Stadtverwaltung Musterstadt"
+    cert: ""                   # z. B. "CERT NRW", "CERT-BW", "Bayern-CERT"; Standard: Landes-CERT bzw. CERT-Bund
+    data_protection_authority: ""   # z. B. "LDI NRW"; Standard: LfD bzw. BfDI
+    police: ""                 # Standard: ZAC des LKA
+    supervisory: ""            # Standard: Kommunalaufsicht / vorgesetzte Behörde / Fachaufsicht
+    it_provider: ""            # z. B. "regio iT", "Dataport", "ITZBund"
+    leadership: ""             # z. B. "Oberbürgermeisterin", "Verwaltungsvorstand"
+    council: ""                # z. B. "Rat der Stadt (Ältestenrat)", "Kreistag"
+    nis2: false                # true = NIS2/BSIG-Meldung (24 h) wird bei P1/P2 kritisch empfohlen
+
+  # Benachrichtigungen (benötigt smtp)
+  notify:
+    new_incident_min_severity: "P2"     # ab dieser Schwere Mail bei neuem Vorfall (P1 = nur kritisch)
+    new_incident_recipients: []         # z. B. ["isb@firma.de", "it-leitung@firma.de"]
+    task_assigned: true                 # Zugewiesene per Mail informieren (Adresse aus dem AD)
+
+  # Alle folgenden Listen sind optional – weggelassen = eingebaute Standardwerte.
+  # Kategorien (angelehnt an die ENISA-Referenztaxonomie, ergänzt um Ausfall Fachverfahren/Bürgerdienste).
+  # Schlüssel nicht nachträglich ändern. Standard zusätzlich: service_outage.
+  # categories:
+  #   - {key: ransomware,         label: "Ransomware / Verschlüsselung"}
+  #   - {key: malware,            label: "Schadsoftware"}
+  #   - {key: phishing,           label: "Phishing / Social Engineering"}
+  #   - {key: credential_leak,    label: "Kompromittierte Zugangsdaten"}
+  #   - {key: account_compromise, label: "Kompromittiertes Konto / unbefugter Zugriff"}
+  #   - {key: data_breach,        label: "Datenabfluss / Datenschutzverletzung"}
+  #   - {key: dos,                label: "Verfügbarkeit / DDoS"}
+  #   - {key: vulnerability,      label: "Schwachstelle / Ausnutzung"}
+  #   - {key: fraud,              label: "Betrug (CEO-Fraud, Rechnungsbetrug)"}
+  #   - {key: insider,            label: "Insider / Fehlverhalten"}
+  #   - {key: device_loss,        label: "Verlust / Diebstahl von Geräten"}
+  #   - {key: supply_chain,       label: "Dienstleister / Lieferkette"}
+  #   - {key: other,              label: "Sonstiges"}
+
+  # Stabsfunktionen (angelehnt an BSI-Standard 200-4 / FwDV 100). Standard zusätzlich: isb, bcm,
+  # staff_council (Personalrat), it_provider, process_owner (Fachverfahren), vs (Geheimschutz).
+  # functions:
+  #   - {key: lead,      label: "Leitung Stab / Incident Commander"}
+  #   - {key: s1,        label: "S1 Personal & Innerer Dienst"}
+  #   - {key: s2,        label: "S2 Lage & Dokumentation"}
+  #   - {key: s3,        label: "S3 Einsatz / technische Maßnahmen"}
+  #   - {key: s4,        label: "S4 Versorgung & Beschaffung"}
+  #   - {key: s5,        label: "S5 Presse & Kommunikation"}
+  #   - {key: s6,        label: "S6 IT & Kommunikationstechnik"}
+  #   - {key: forensics, label: "Forensik / Analyse"}
+  #   - {key: dpo,       label: "Datenschutz"}
+  #   - {key: legal,     label: "Recht / Compliance"}
+  #   - {key: external,  label: "Externer Dienstleister / IR-Team"}
+  #   - {key: member,    label: "Mitarbeit"}
+
+  # Melde- und Benachrichtigungspflichten. Weggelassen = Standardwerte, abgeleitet aus "org":
+  #   dsgvo    – Art. 33/34 DSGVO an die Datenschutz-Aufsicht (72 h)
+  #   cert     – Erstmeldung an das CERT (24 h) + Abschlussmeldung (30 Tage)
+  #   aufsicht – Unterrichtung im Dienstweg (24 h)
+  #   nis2     – § 32 BSIG (24 h / 72 h / 1 Monat) – nur für Bundesverwaltung bzw. NIS2-pflichtige Einrichtungen
+  # Fristen in Stunden ab Kenntnisnahme; mit "after" ab Erledigung einer anderen Frist derselben Pflicht.
+  # Wird die Liste angegeben, ersetzt sie die Standardwerte vollständig. Bitte mit DSB/Justiziariat abstimmen.
+  # regulations:
+  #   - key: dsgvo
+  #     label: "DSGVO – Verletzung des Schutzes personenbezogener Daten"
+  #     authority: "Landesbeauftragte/r für Datenschutz"
+  #     deadlines:
+  #       - {key: dsgvo_33, label: "Meldung an LfD (Art. 33)", hours: 72}
+  #       - {key: dsgvo_34, label: "Benachrichtigung Betroffener prüfen (Art. 34)", hours: 72}
+  #   - key: cert
+  #     label: "Meldung an CERT-NRW"
+  #     authority: "CERT NRW"
+  #     deadlines:
+  #       - {key: cert_first, label: "Erstmeldung", hours: 24}
+  #       - {key: cert_final, label: "Abschlussmeldung", hours: 720, after: cert_first}
+  #   - key: ksa
+  #     label: "Kommunaler Schadenausgleich / Versicherung"
+  #     authority: "KSA"
+  #     deadlines: [{key: ksa_meldung, label: "Schadenanzeige", hours: 48}]
+
+  # Checklisten je Phase: erscheinen als Empfehlung, bis eine gleichnamige Aufgabe existiert oder die
+  # Empfehlung begründet verworfen wurde. Weggelassen = Standard-Checklisten nach BSI DER.2.1/DER.2.2,
+  # BSI-Standard 200-4 und NIST SP 800-61. Phasen: gemeldet, triage, analyse, eindaemmung, beseitigung,
+  # wiederherstellung, nachbereitung.
+  # checklists:
+  #   - phase: wiederherstellung
+  #     steps:
+  #       - title: "Freigabe zur Wiederinbetriebnahme durch Fachverfahrensverantwortliche"
+  #         why: "Fachliche Abnahme dokumentiert Funktionsfähigkeit und Datenrichtigkeit."
+  #         ref: "BSI-Standard 200-4"
+  #         function: process_owner
+  #         priority: mittel
+  #         due_hours: 24
+  #         categories: []        # leer = alle Kategorien
+  #         severities: [P1, P2]  # leer = alle Schweregrade
+
+  # Playbooks: Standard-Aufgaben je Kategorie (beim Anlegen optional übernehmen).
+  # due_hours = Frist ab Kenntnisnahme. Weggelassen = eingebaute Playbooks für
+  # ransomware, phishing, account_compromise, data_breach, malware.
+  # playbooks:
+  #   - category: ransomware
+  #     tasks:
+  #       - {title: "Betroffene Systeme vom Netz trennen (nicht ausschalten)", function: s3, priority: hoch, due_hours: 1}
+  #       - {title: "Backups prüfen und offline sichern", function: s6, priority: hoch, due_hours: 2}
+  #       - {title: "Meldepflichten prüfen", function: dpo, priority: hoch, due_hours: 12}
+
+# Lokales Konto am AD vorbei – NUR für Entwicklung/Tests (Rolle: admin).
 # Hash erzeugen: leakguard hash-password
 dev_admin:
   enabled: false

@@ -49,11 +49,12 @@ type Server struct {
 	mailer  *mailer.Mailer
 	pages   map[string]*template.Template
 	limiter *limiter
+	hub     *hub
 	Version string
 }
 
 func New(cfg *config.Config, st *store.Store, l *ldapx.Client, e *engine.Engine, m *mailer.Mailer, version string) (*Server, error) {
-	s := &Server{cfg: cfg, store: st, ldap: l, engine: e, mailer: m, limiter: newLimiter(), Version: version}
+	s := &Server{cfg: cfg, store: st, ldap: l, engine: e, mailer: m, limiter: newLimiter(), hub: newHub(), Version: version}
 	if err := s.parseTemplates(); err != nil {
 		return nil, err
 	}
@@ -96,6 +97,91 @@ func (s *Server) parseTemplates() error {
 		"risks": func() []string {
 			return []string{model.RiskCritical, model.RiskHigh, model.RiskMedium, model.RiskLow, model.RiskInfo}
 		},
+		"lab":   func(list, key string) string { return labelOf(labeledLists[list], key) },
+		"opts":  func(list string) []model.Labeled { return labeledLists[list] },
+		"cat":   func(k string) string { return s.cfg.Incident.Category(k).Label },
+		"cats":  func() []config.Option { return s.cfg.Incident.Categories },
+		"fn":    func(k string) string { return s.cfg.Incident.Function(k).Label },
+		"fns":   func() []config.Option { return s.cfg.Incident.Functions },
+		"regs":  func() []config.Regulation { return s.cfg.Incident.Regulations },
+		"until": until,
+		"since": func(t time.Time) string {
+			if t.IsZero() {
+				return "–"
+			}
+			return strings.TrimPrefix(until(t), "überfällig seit ")
+		},
+		"rev": func(in []model.JournalEntry) []model.JournalEntry {
+			out := make([]model.JournalEntry, len(in))
+			for i, e := range in {
+				out[len(in)-1-i] = e
+			}
+			return out
+		},
+		"span": func(a, b time.Time) string {
+			if a.IsZero() || b.IsZero() {
+				return "–"
+			}
+			d := b.Sub(a)
+			if d < 0 {
+				return "–"
+			}
+			if d < 48*time.Hour {
+				return fmt.Sprintf("%d h %d min", int(d.Hours()), int(d.Minutes())%60)
+			}
+			return fmt.Sprintf("%d Tage %d h", int(d.Hours()/24), int(d.Hours())%24)
+		},
+		"unix": func(t time.Time) int64 { return t.Unix() },
+		"dtl": func(t time.Time) string {
+			if t.IsZero() {
+				return ""
+			}
+			return t.Local().Format("2006-01-02T15:04")
+		},
+		"lower": strings.ToLower,
+		"past":  func(t time.Time) bool { return !t.IsZero() && time.Now().After(t) },
+		"soon":  func(t time.Time) bool { return !t.IsZero() && time.Until(t) < 24*time.Hour },
+		"name": func(m map[string]string, u string) string {
+			if d := m[strings.ToLower(u)]; d != "" {
+				return d
+			}
+			return u
+		},
+		"role": roleLabel,
+		"has":  hasRole,
+		"tabs": func() []model.Labeled { return incTabs },
+		"phaseIdx": func(p string) int {
+			for i, x := range model.Phases {
+				if x.Key == p {
+					return i
+				}
+			}
+			return 0
+		},
+		"manualKinds": func() []model.Labeled {
+			var out []model.Labeled
+			for _, k := range model.ManualJournalKinds {
+				out = append(out, model.Labeled{Key: k, Label: labelOf(model.JournalKinds, k)})
+			}
+			return out
+		},
+		"mul": func(a, b int) int { return a * b },
+		"dict": func(kv ...any) map[string]any {
+			m := map[string]any{}
+			for i := 0; i+1 < len(kv); i += 2 {
+				m[fmt.Sprint(kv[i])] = kv[i+1]
+			}
+			return m
+		},
+		"prioLabel": func(p string) string {
+			return map[string]string{"kritisch": "Kritisch", "hoch": "Hoch", "mittel": "Mittel", "hinweis": "Hinweis"}[p]
+		},
+		"div": func(a, b int) int {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
 	}
 	pages, err := fs.Glob(templateFS, "templates/*.html")
 	if err != nil {
@@ -104,10 +190,10 @@ func (s *Server) parseTemplates() error {
 	s.pages = map[string]*template.Template{}
 	for _, p := range pages {
 		name := strings.TrimSuffix(strings.TrimPrefix(p, "templates/"), ".html")
-		if name == "layout" {
+		if name == "layout" || name == "walllayout" {
 			continue
 		}
-		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", p)
+		t, err := template.New("").Funcs(funcs).ParseFS(templateFS, "templates/layout.html", "templates/walllayout.html", p)
 		if err != nil {
 			return fmt.Errorf("template %s: %w", p, err)
 		}
@@ -133,24 +219,68 @@ func (s *Server) Handler() http.Handler {
 	static, _ := fs.Sub(staticFS, "static")
 	mux.Handle("GET /static/", http.StripPrefix("/static/", cacheStatic(http.FileServer(http.FS(static)))))
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	// Fremde Service Worker (z. B. von einer früher unter derselben Adresse betriebenen Anwendung) entfernen.
+	for _, p := range []string{"/sw.js", "/service-worker.js", "/serviceworker.js", "/sw.min.js", "/firebase-messaging-sw.js"} {
+		mux.HandleFunc("GET "+p, s.handleKillServiceWorker)
+	}
 	mux.HandleFunc("GET /login", s.handleLoginForm)
 	mux.HandleFunc("POST /login", s.handleLogin)
 
 	auth := func(h http.HandlerFunc) http.Handler { return s.requireAuth(h) }
+	resp := func(h http.HandlerFunc) http.Handler { return s.requireAuth(s.requireRole(config.RoleResponder, h)) }
+	admin := func(h http.HandlerFunc) http.Handler { return s.requireAuth(s.requireRole(config.RoleAdmin, h)) }
 	mux.Handle("POST /logout", auth(s.handleLogout))
-	mux.Handle("GET /{$}", auth(s.handleList))
+	mux.Handle("GET /live", auth(s.handleLive))
+
+	// Lagezentrum & Vorfälle
+	mux.Handle("GET /{$}", auth(s.handleLage))
+	mux.Handle("GET /wall", auth(s.handleWall))
+	mux.Handle("GET /incidents", auth(s.handleIncidents))
+	mux.Handle("GET /incidents/{id}/wall", auth(s.handleIncidentWall))
+	mux.Handle("GET /incidents/new", resp(s.handleIncidentNew))
+	mux.Handle("POST /incidents", resp(s.handleIncidentCreate))
+	mux.Handle("GET /incidents/{id}", auth(s.handleIncident))
+	mux.Handle("GET /incidents/{id}/report", auth(s.handleIncidentReport))
+	mux.Handle("GET /incidents/{id}/iocs.txt", auth(s.handleIOCExport))
+	mux.Handle("POST /incidents/{id}/update", auth(s.handleIncidentUpdate))
+	mux.Handle("POST /incidents/{id}/phase", auth(s.handleIncidentPhase))
+	mux.Handle("POST /incidents/{id}/crisis", auth(s.handleIncidentCrisis))
+	mux.Handle("POST /incidents/{id}/post", auth(s.handleIncidentPost))
+	mux.Handle("POST /incidents/{id}/journal", auth(s.handleJournalAdd))
+	mux.Handle("POST /incidents/{id}/tasks", auth(s.handleTaskCreate))
+	mux.Handle("POST /incidents/{id}/tasks/{tid}", auth(s.handleTaskUpdate))
+	mux.Handle("POST /incidents/{id}/comms", auth(s.handleCommCreate))
+	mux.Handle("POST /incidents/{id}/comms/{cid}", auth(s.handleCommStatus))
+	mux.Handle("POST /incidents/{id}/assets", auth(s.handleAssetCreate))
+	mux.Handle("POST /incidents/{id}/assets/{aid}", auth(s.handleAssetUpdate))
+	mux.Handle("POST /incidents/{id}/iocs", auth(s.handleIOCCreate))
+	mux.Handle("POST /incidents/{id}/iocs/{oid}/delete", auth(s.handleIOCDelete))
+	mux.Handle("POST /incidents/{id}/obligations", auth(s.handleObligationActivate))
+	mux.Handle("POST /incidents/{id}/obligations/{oid}", auth(s.handleObligationUpdate))
+	mux.Handle("POST /incidents/{id}/members", auth(s.handleMemberAdd))
+	mux.Handle("POST /incidents/{id}/members/remove", auth(s.handleMemberRemove))
+	mux.Handle("POST /incidents/{id}/sitrep", auth(s.handleSitrep))
+	mux.Handle("POST /incidents/{id}/recs", auth(s.handleRec))
+	mux.Handle("POST /incidents/{id}/cancel", auth(s.handleIncidentCancel))
+	mux.Handle("POST /incidents/{id}/restore", auth(s.handleIncidentRestore))
+	mux.Handle("POST /incidents/{id}/purge", auth(s.handleIncidentPurge))
+	mux.Handle("GET /audit", admin(s.handleAudit))
+
+	// Leak-Prüfung
+	mux.Handle("GET /leaks", auth(s.handleList))
 	mux.Handle("GET /export.csv", auth(s.handleExport))
 	mux.Handle("GET /blocklist.txt", auth(s.handleBlocklist))
-	mux.Handle("GET /cases/new", auth(s.handleNewForm))
-	mux.Handle("POST /cases", auth(s.handleCreate))
+	mux.Handle("GET /cases/new", resp(s.handleNewForm))
+	mux.Handle("POST /cases", resp(s.handleCreate))
 	mux.Handle("GET /cases/{id}", auth(s.handleCase))
-	mux.Handle("POST /cases/{id}/recheck", auth(s.handleRecheck))
-	mux.Handle("POST /cases/{id}/mail/{kind}", auth(s.handleSendMail))
-	mux.Handle("POST /cases/{id}/todo", auth(s.handleTodo))
-	mux.Handle("POST /cases/{id}/status", auth(s.handleStatus))
-	mux.Handle("POST /cases/{id}/note", auth(s.handleNote))
-	mux.Handle("GET /settings", auth(s.handleSettings))
-	mux.Handle("POST /settings", auth(s.handleSaveSettings))
+	mux.Handle("POST /cases/{id}/recheck", resp(s.handleRecheck))
+	mux.Handle("POST /cases/{id}/mail/{kind}", resp(s.handleSendMail))
+	mux.Handle("POST /cases/{id}/todo", resp(s.handleTodo))
+	mux.Handle("POST /cases/{id}/status", resp(s.handleStatus))
+	mux.Handle("POST /cases/{id}/note", resp(s.handleNote))
+	mux.Handle("POST /cases/{id}/escalate", resp(s.handleLeakEscalate))
+	mux.Handle("GET /settings", admin(s.handleSettings))
+	mux.Handle("POST /settings", admin(s.handleSaveSettings))
 	return s.securityHeaders(s.logRequests(mux))
 }
 
@@ -186,6 +316,9 @@ type statusWriter struct {
 
 func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHeader(c) }
 
+// Unwrap ermöglicht http.ResponseController (Flush, Deadlines) für Server-Sent Events.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -214,6 +347,7 @@ func (s *Server) clientIP(r *http.Request) string {
 // ---------- Rendering ----------
 
 type page struct {
+	Layout  string // "" = Standard, "walllayout" = Vollbild-Lagewand
 	Title   string
 	Nav     string
 	Session *store.Session
@@ -225,19 +359,41 @@ type page struct {
 }
 
 var messages = map[string]string{
-	"created":    "Fall angelegt und geprüft.",
-	"rechecked":  "Prüfung erneut durchgeführt.",
-	"usermail":   "E-Mail an den Benutzer wurde versendet.",
-	"adminmail":  "Admin-Information wurde versendet.",
-	"todo":       "Admin-ToDo aktualisiert.",
-	"status":     "Status geändert.",
-	"note":       "Notiz gespeichert.",
-	"saved":      "Einstellungen gespeichert.",
-	"loggedout":  "Sie wurden abgemeldet.",
-	"closed":     "Fall abgeschlossen.",
-	"reset":      "Vorlage auf Standard zurückgesetzt.",
-	"mailerror":  "Mailversand fehlgeschlagen – Details im Verlauf.",
-	"nopassword": "Gespeichertes Kennwort nicht lesbar – bitte Kennwort erneut eingeben.",
+	"created":            "Fall angelegt und geprüft.",
+	"rechecked":          "Prüfung erneut durchgeführt.",
+	"usermail":           "E-Mail an den Benutzer wurde versendet.",
+	"adminmail":          "Admin-Information wurde versendet.",
+	"todo":               "Admin-ToDo aktualisiert.",
+	"status":             "Status geändert.",
+	"note":               "Notiz gespeichert.",
+	"saved":              "Einstellungen gespeichert.",
+	"loggedout":          "Sie wurden abgemeldet.",
+	"closed":             "Fall abgeschlossen.",
+	"reset":              "Vorlage auf Standard zurückgesetzt.",
+	"mailerror":          "Mailversand fehlgeschlagen – Details im Verlauf.",
+	"nopassword":         "Gespeichertes Kennwort nicht lesbar – bitte Kennwort erneut eingeben.",
+	"inc_created":        "Vorfall angelegt.",
+	"phase":              "Phase geändert.",
+	"sitrep":             "Lagemeldung erstellt.",
+	"invalid":            "Eingabe unvollständig – bitte Pflichtfelder ausfüllen.",
+	"needreason":         "Bitte begründen, warum keine Meldung erforderlich ist (Dokumentationspflicht).",
+	"leadremove":         "Die Leitung kann nicht entfernt werden – zuerst eine andere Leitung festlegen.",
+	"rec_applied":        "Empfehlung umgesetzt.",
+	"rec_dismissed":      "Empfehlung verworfen – Begründung im Einsatztagebuch dokumentiert.",
+	"rec_reason":         "Zum Verwerfen bitte eine Begründung angeben (wird im Einsatztagebuch dokumentiert).",
+	"rec_gone":           "Die Empfehlung ist nicht mehr aktuell.",
+	"cancelled":          "Vorfall storniert. Er erscheint nicht mehr in Lagezentrum und Listen.",
+	"cancel_reason":      "Zum Stornieren bitte eine Begründung angeben.",
+	"restored":           "Storno aufgehoben. Bitte die beim Storno beendeten Meldepflichten prüfen.",
+	"purged":             "Vorfall endgültig gelöscht. Der Löschvorgang ist im Audit-Log vermerkt.",
+	"purge_confirm":      "Zur Bestätigung bitte die Vorfallnummer exakt eingeben.",
+	"purge_notcancelled": "Nur stornierte Vorfälle können endgültig gelöscht werden.",
+}
+
+var labeledLists = map[string][]model.Labeled{
+	"phase": model.Phases, "sev": model.Severities, "tlp": model.TLPs, "irole": model.IncidentRoles, "jkind": model.JournalKinds,
+	"tstat": model.TaskStatuses, "prio": model.Priorities, "chan": model.CommChannels, "party": model.CommParties,
+	"cstat": model.CommStatuses, "akind": model.AssetKinds, "astat": model.AssetStatuses, "ioc": model.IOCTypes,
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p page) {
@@ -254,7 +410,11 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p p
 	}
 	p.Version = s.Version
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := t.ExecuteTemplate(w, "layout", p); err != nil {
+	layout := "layout"
+	if p.Layout != "" {
+		layout = p.Layout
+	}
+	if err := t.ExecuteTemplate(w, layout, p); err != nil {
 		slog.Error("render", "page", name, "err", err)
 	}
 }

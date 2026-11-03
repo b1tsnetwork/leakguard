@@ -1,0 +1,117 @@
+{{define "content"}}
+{{with .Data}}
+<div data-live-scope="0">
+<div class="pagehead">
+  <div>
+    <h1>Lagezentrum</h1>
+    <p class="muted"><span data-clock></span></p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/wall" title="Vollbildansicht für Großbildschirm / Lageraum">Lagewand</a>
+    {{if .CanCreate}}<a class="btn primary" href="/incidents/new">+ Neuer Vorfall</a>{{end}}
+  </div>
+</div>
+
+<div data-live-region="kpi" class="stats kpi">
+  <a class="stat {{if .Crisis}}alert{{end}}" href="/incidents"><b>{{.Active}}</b><span>aktive Vorfälle{{if .Crisis}} · {{.Crisis}} Lage{{end}}</span></a>
+  <div class="stat sevbar">
+    {{range opts "sev"}}<span class="sev sev-{{.Key}}" title="{{.Label}}">{{.Key}} <b>{{index $.Data.BySeverity .Key}}</b></span>{{end}}
+  </div>
+  <div class="stat {{if .Overdue}}alert{{end}}"><b>{{.OpenTasks}}</b><span>offene Aufgaben{{if .Overdue}} · {{.Overdue}} überfällig{{end}}</span></div>
+  <div class="stat {{if .Requests}}warnstat{{end}}"><b>{{len .Requests}}</b><span>Anfragen / Freigaben offen</span></div>
+  <div class="stat {{if .Deadlines}}warnstat{{end}}"><b>{{len .Deadlines}}</b><span>Meldefristen offen</span></div>
+  <a class="stat" href="/leaks?status=offen"><b>{{.LeakOpen}}</b><span>Leak-Fälle offen{{if .LeakTodo}} · {{.LeakTodo}} AD-ToDo{{end}}</span></a>
+</div>
+
+<div class="lagegrid">
+<section data-live-region="cards" class="lagecards">
+  {{range .Cards}}{{$in := .In}}
+  <a class="lagecard sevborder-{{$in.Severity}} {{if $in.CrisisMode}}crisis{{end}}" href="/incidents/{{$in.ID}}">
+    <div class="lc-head">
+      <span class="sev sev-{{$in.Severity}}">{{$in.Severity}}</span>
+      <span class="tlp tlp-{{$in.TLP}}">TLP:{{$in.TLP}}</span>
+      {{if $in.CrisisMode}}<span class="tag bad">LAGE</span>{{end}}
+      {{if $in.Confidential}}<span class="tag">vertraulich</span>{{end}}
+      <span class="lc-num">{{$in.Number}}</span>
+    </div>
+    <h3>{{$in.Title}}</h3>
+    <div class="phasebar" title="{{lab "phase" $in.Phase}}">
+      {{range $i, $p := opts "phase"}}{{if lt $i 7}}<i class="{{if le $i (phaseIdx $in.Phase)}}done{{end}}" title="{{$p.Label}}"></i>{{end}}{{end}}
+    </div>
+    <div class="lc-meta">
+      <span>{{lab "phase" $in.Phase}}</span> · <span>{{cat $in.Category}}</span> · <span>Leitung {{name $.Data.Names $in.Lead}}</span>
+    </div>
+    <div class="lc-counts">
+      <span class="{{if .Counts.OverdueTasks}}bad{{end}}" title="offene / überfällige Aufgaben">☐ {{.Counts.OpenTasks}}{{if .Counts.OverdueTasks}} ({{.Counts.OverdueTasks}}!){{end}}</span>
+      <span class="{{if .Counts.OpenRequests}}warn{{end}}" title="offene Anfragen">✉ {{.Counts.OpenRequests}}</span>
+      {{if .Counts.PendingApprovals}}<span class="warn" title="Freigaben">✔? {{.Counts.PendingApprovals}}</span>{{end}}
+      <span class="{{if .Counts.Compromised}}bad{{end}}" title="Systeme (kompromittiert)">▣ {{.Counts.Assets}}{{if .Counts.Compromised}} ({{.Counts.Compromised}}){{end}}</span>
+      <span title="seit Kenntnisnahme">⏱ {{since $in.AwarenessAt}}</span>
+    </div>
+    {{with .Next}}<div class="lc-deadline {{if .Overdue}}over{{end}}">§ {{.Label}}: <b data-due="{{unix .DueAt}}">{{until .DueAt}}</b></div>{{end}}
+    {{if not $in.NextBriefing.IsZero}}<div class="lc-briefing">Lagebesprechung: {{dt $in.NextBriefing}} (<span data-due="{{unix $in.NextBriefing}}">{{until $in.NextBriefing}}</span>)</div>{{end}}
+    {{with .Top}}<div class="lc-next rl-{{.Priority}}">➜ {{.Title}}</div>{{end}}
+    {{with .Sitrep}}<div class="lc-sitrep"><b>Lage Nr. {{.No}}:</b> {{.Situation}}</div>{{end}}
+    {{if .HasLast}}<div class="lc-last"><time>{{dt .Last.At}}</time> {{name $.Data.Names .Last.Actor}}: {{.Last.Text}}</div>{{end}}
+  </a>
+  {{else}}
+  <div class="card empty"><p>Keine aktiven Vorfälle.</p>{{if .CanCreate}}<a class="btn primary" href="/incidents/new">Vorfall anlegen</a>{{end}}</div>
+  {{end}}
+</section>
+
+<aside class="lageside">
+  <section class="card actions-card" data-live-region="actions">
+    <h2>Handlungsbedarf</h2>
+    {{range .Actions}}
+    <a class="row-link rl-{{.Priority}}" href="/incidents/{{.Incident.ID}}?tab=empfehlungen">
+      <span class="rprio rprio-{{.Priority}}">{{prioLabel .Priority}}</span><span>{{.Title}}</span>
+      <small class="muted">{{.Incident.Number}} · {{.Incident.Title}}</small>
+    </a>
+    {{else}}<p class="muted small">Kein dringender Handlungsbedarf.</p>{{end}}
+  </section>
+
+  <section class="card" data-live-region="deadlines">
+    <h2>Meldefristen</h2>
+    {{range .Deadlines}}
+    <a class="row-link {{if .Overdue}}over{{end}}" href="/incidents/{{.IncidentID}}?tab=meldepflichten">
+      <b data-due="{{unix .DueAt}}" class="due">{{until .DueAt}}</b>
+      <span>{{.Label}}</span><small class="muted">{{.IncidentNumber}} · {{.Authority}}</small>
+    </a>
+    {{else}}<p class="muted small">Keine offenen Meldefristen.</p>{{end}}
+  </section>
+
+  <section class="card" data-live-region="requests">
+    <h2>Offene Anfragen & Freigaben</h2>
+    {{range .Requests}}
+    <a class="row-link {{if .ReplyOverdue}}over{{end}}" href="/incidents/{{.IncidentID}}?tab=kommunikation">
+      {{if .PendingApproval}}<span class="tag warn">Freigabe</span>{{else}}<span class="tag">{{lab "party" .PartyType}}</span>{{end}}
+      <span>{{.Subject}}</span>
+      <small class="muted">{{.IncidentNumber}}{{if .Party}} · {{.Party}}{{end}}{{if not .ReplyDue.IsZero}} · <span data-due="{{unix .ReplyDue}}">{{until .ReplyDue}}</span>{{end}}</small>
+    </a>
+    {{else}}<p class="muted small">Keine offenen Anfragen.</p>{{end}}
+  </section>
+
+  <section class="card" data-live-region="mytasks">
+    <h2>Meine Aufgaben</h2>
+    {{range .MyTasks}}
+    <a class="row-link {{if .Overdue}}over{{end}}" href="/incidents/{{.IncidentID}}?tab=aufgaben">
+      <span class="prio prio-{{.Priority}}">{{lab "prio" .Priority}}</span> <span>{{.Title}}</span>
+      <small class="muted">{{.IncidentNumber}} · {{lab "tstat" .Status}}{{if not .DueAt.IsZero}} · <span data-due="{{unix .DueAt}}">{{until .DueAt}}</span>{{end}}</small>
+    </a>
+    {{else}}<p class="muted small">Keine offenen Aufgaben für Sie.</p>{{end}}
+  </section>
+
+  <section class="card" data-live-region="ticker">
+    <h2>Live-Ticker</h2>
+    <ol class="ticker">
+      {{range .Ticker}}
+      <li class="jk-{{.Kind}}"><time>{{dt .At}}</time> <a href="/incidents/{{.IncidentID}}?tab=tagebuch">{{.IncidentNumber}}</a>
+        <span class="muted">{{lab "jkind" .Kind}} · {{name $.Data.Names .Actor}}</span><div>{{.Text}}</div></li>
+      {{else}}<li class="muted">Noch keine Einträge.</li>{{end}}
+    </ol>
+  </section>
+</aside>
+</div>
+</div>
+{{end}}
+{{end}}

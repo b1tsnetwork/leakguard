@@ -106,6 +106,9 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("schema anlegen: %w", err)
 	}
+	if _, err := db.Exec(incidentSchema); err != nil {
+		return nil, fmt.Errorf("schema (vorfälle) anlegen: %w", err)
+	}
 	s := &Store{db: db}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migration: %w", err)
@@ -115,8 +118,37 @@ func Open(path string) (*Store, error) {
 
 // migrate ergänzt Spalten in bestehenden Datenbanken.
 func (s *Store) migrate() error {
+	if err := s.addColumn("sessions", "role", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if err := s.addColumn("sessions", "mail", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	for _, c := range [][2]string{{"classification", `TEXT NOT NULL DEFAULT ''`}, {"cancelled", `INTEGER NOT NULL DEFAULT 0`},
+		{"cancel_reason", `TEXT NOT NULL DEFAULT ''`}, {"cancelled_at", `INTEGER NOT NULL DEFAULT 0`}, {"cancelled_by", `TEXT NOT NULL DEFAULT ''`},
+		{"purging", `INTEGER NOT NULL DEFAULT 0`}} {
+		if err := s.addColumn("incidents", c[0], c[1]); err != nil {
+			return err
+		}
+	}
+	// Löschsperren: unveränderlich – außer der Vorfall wird ausdrücklich endgültig gelöscht (PurgeIncident).
+	if _, err := s.db.Exec(`
+		DROP TRIGGER IF EXISTS journal_no_delete;
+		CREATE TRIGGER journal_no_delete BEFORE DELETE ON journal
+			WHEN coalesce((SELECT purging FROM incidents WHERE id = OLD.incident_id), 0) <> 1
+			BEGIN SELECT RAISE(ABORT, 'journal is append-only'); END;
+		DROP TRIGGER IF EXISTS sitreps_no_delete;
+		CREATE TRIGGER sitreps_no_delete BEFORE DELETE ON sitreps
+			WHEN coalesce((SELECT purging FROM incidents WHERE id = OLD.incident_id), 0) <> 1
+			BEGIN SELECT RAISE(ABORT, 'sitreps are append-only'); END;`); err != nil {
+		return err
+	}
+	return s.addColumn("cases", "pw_enc", `TEXT NOT NULL DEFAULT ''`)
+}
+
+func (s *Store) addColumn(table, col, def string) error {
 	cols := map[string]bool{}
-	rows, err := s.db.Query(`PRAGMA table_info(cases)`)
+	rows, err := s.db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}
@@ -131,8 +163,8 @@ func (s *Store) migrate() error {
 		cols[name] = true
 	}
 	rows.Close()
-	if !cols["pw_enc"] {
-		if _, err := s.db.Exec(`ALTER TABLE cases ADD COLUMN pw_enc TEXT NOT NULL DEFAULT ''`); err != nil {
+	if !cols[col] {
+		if _, err := s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col + ` ` + def); err != nil {
 			return err
 		}
 	}
@@ -379,21 +411,23 @@ type Session struct {
 	TokenHash string
 	Username  string
 	Display   string
+	Mail      string
+	Role      string
 	CSRF      string
 	ExpiresAt time.Time
 }
 
 func (s *Store) CreateSession(ctx context.Context, se Session) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token_hash, username, display, csrf, created_at, expires_at) VALUES (?,?,?,?,?,?)`,
-		se.TokenHash, se.Username, se.Display, se.CSRF, ts(time.Now()), ts(se.ExpiresAt))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO sessions (token_hash, username, display, mail, role, csrf, created_at, expires_at) VALUES (?,?,?,?,?,?,?,?)`,
+		se.TokenHash, se.Username, se.Display, se.Mail, se.Role, se.CSRF, ts(time.Now()), ts(se.ExpiresAt))
 	return err
 }
 
 func (s *Store) GetSession(ctx context.Context, tokenHash string) (*Session, error) {
 	var se Session
 	var exp int64
-	err := s.db.QueryRowContext(ctx, `SELECT token_hash, username, display, csrf, expires_at FROM sessions WHERE token_hash=?`, tokenHash).
-		Scan(&se.TokenHash, &se.Username, &se.Display, &se.CSRF, &exp)
+	err := s.db.QueryRowContext(ctx, `SELECT token_hash, username, display, mail, role, csrf, expires_at FROM sessions WHERE token_hash=?`, tokenHash).
+		Scan(&se.TokenHash, &se.Username, &se.Display, &se.Mail, &se.Role, &se.CSRF, &exp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -438,5 +472,11 @@ func (s *Store) SetSetting(ctx context.Context, key, value, actor string) error 
 
 func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key=?`, key)
+	return err
+}
+
+// Exec führt eine Anweisung direkt aus (Wartung/Tests).
+func (s *Store) Exec(ctx context.Context, q string, args ...any) error {
+	_, err := s.db.ExecContext(ctx, q, args...)
 	return err
 }

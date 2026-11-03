@@ -1,0 +1,75 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead"><div><a class="back" href="/incidents">← Vorfälle</a><h1>Neuer Sicherheitsvorfall</h1></div></div>
+<form method="post" action="/incidents" class="grid2 wide-left">
+  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+  <section class="card">
+    <h2>Erstmeldung</h2>
+    <label>Titel <span class="req">*</span>
+      <input name="title" value="{{.In.Title}}" required maxlength="200" autofocus placeholder="Kurz und eindeutig, z. B. „Ransomware auf Dateiserver FS01“">
+    </label>
+    <div class="row2">
+      <label>Kategorie
+        <select name="category">{{range cats}}<option value="{{.Key}}" {{if eq .Key $.Data.In.Category}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+        <small class="muted">Für einzelne geleakte Kennwörter die <a href="/cases/new">Leak-Prüfung</a> nutzen – sie kann später eskaliert werden.</small>
+      </label>
+      <label>Schwere
+        <select name="severity">{{range opts "sev"}}<option value="{{.Key}}" title="{{.Hint}}" {{if eq .Key $.Data.In.Severity}}selected{{end}}>{{.Label}}</option>{{end}}</select>
+      </label>
+    </div>
+    <label>Beschreibung / Erstinformation
+      <textarea name="description" rows="7" placeholder="Was ist passiert? Wer hat was wann festgestellt? Was ist bisher bekannt / unbekannt?">{{.In.Description}}</textarea>
+    </label>
+    <div class="row2">
+      <label>Meldeweg / Quelle<input name="source" value="{{.In.Source}}" placeholder="SOC, EDR-Alarm, Benutzer, Dienstleister …"></label>
+      <label>Gemeldet von<input name="reported_by" value="{{.In.ReportedBy}}" placeholder="Name, Telefon"></label>
+    </div>
+    <fieldset class="row3">
+      <legend>Zeitpunkte</legend>
+      <label>Beginn (falls bekannt)<input type="datetime-local" name="occurred_at" value="{{dtl .In.OccurredAt}}"></label>
+      <label>Entdeckt<input type="datetime-local" name="detected_at" value="{{dtl .In.DetectedAt}}"></label>
+      <label>Kenntnisnahme <span class="req">*</span><input type="datetime-local" name="awareness_at" value="{{dtl .In.AwarenessAt}}" required>
+        <small class="muted">Startet die Meldefristen (DSGVO 72 h, NIS2 24 h …).</small></label>
+    </fieldset>
+    <fieldset>
+      <legend>Auswirkung</legend>
+      <div class="checks-inline">
+        <label class="check"><input type="checkbox" name="impact_c" value="1" {{if .In.ImpactC}}checked{{end}}><span>Vertraulichkeit</span></label>
+        <label class="check"><input type="checkbox" name="impact_i" value="1" {{if .In.ImpactI}}checked{{end}}><span>Integrität</span></label>
+        <label class="check"><input type="checkbox" name="impact_a" value="1" {{if .In.ImpactA}}checked{{end}}><span>Verfügbarkeit</span></label>
+        <label class="check"><input type="checkbox" name="personal_data" value="1" {{if .In.PersonalData}}checked{{end}}><span>Personenbezogene Daten</span></label>
+      </div>
+      <label class="narrow">Betroffene Personen/Nutzer (ca.)<input type="number" min="0" name="affected_users" value="{{.In.AffectedUsers}}"></label>
+    </fieldset>
+  </section>
+
+  <aside>
+    <section class="card">
+      <h2>Führung & Schutz</h2>
+      <label>Leitung (Incident Commander)
+        <select name="lead">{{range .Users}}<option value="{{.Username}}" {{if eq .Username $.Data.In.Lead}}selected{{end}}>{{.Display}} ({{.Username}})</option>{{end}}</select>
+        <small class="muted">Auswahl: alle, die sich bereits angemeldet haben.</small>
+      </label>
+      <label>Einstufung (TLP)
+        <select name="tlp">{{range opts "tlp"}}<option value="{{.Key}}" title="{{.Hint}}" {{if eq .Key $.Data.In.TLP}}selected{{end}}>{{.Label}} – {{.Hint}}</option>{{end}}</select>
+      </label>
+      <label>VS-Einstufung
+        <select name="classification"><option value="">keine</option><option value="VS-NfD">VS – Nur für den Dienstgebrauch</option></select>
+        <small class="muted">Höhere Einstufungen nicht in diesem System verarbeiten.</small>
+      </label>
+      <label class="check"><input type="checkbox" name="confidential" value="1"><span><b>Vertraulich (need-to-know)</b><br><small class="muted">Nur für eingetragene Stabsmitglieder und Administratoren sichtbar – z. B. Insider-Fälle.</small></span></label>
+      <label class="check"><input type="checkbox" name="crisis_mode" value="1"><span><b>Lage / Krisenstab aktivieren</b><br><small class="muted">Vorfall wird im Lagezentrum hervorgehoben.</small></span></label>
+    </section>
+    <section class="card">
+      <h2>Vorbereitung</h2>
+      <label class="check"><input type="checkbox" name="playbook" value="1" checked><span>Standard-Aufgaben aus dem Playbook der Kategorie anlegen</span></label>
+      <p class="muted small">Meldepflichten prüfen und aktivieren (Fristen ab Kenntnisnahme):</p>
+      {{range regs}}
+      <label class="check"><input type="checkbox" name="regulation" value="{{.Key}}"><span><b>{{.Label}}</b><br><small class="muted">{{.Hint}}</small></span></label>
+      {{end}}
+    </section>
+    <button class="btn primary block">Vorfall anlegen</button>
+  </aside>
+</form>
+{{end}}
+{{end}}

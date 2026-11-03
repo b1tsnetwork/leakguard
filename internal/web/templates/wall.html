@@ -1,0 +1,110 @@
+{{define "content"}}
+{{with .Data}}
+<div class="wallroot wall-global" data-live-scope="0">
+<header class="wh">
+  <a class="wh-brand" href="/" title="Zurück zum Lagezentrum"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5l-8-3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M9 12.5 11 14.5 15.5 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+  <div class="wh-title"><h1>Gesamtlage</h1><span class="wh-sub">Lagewand · alle aktiven Vorfälle</span></div>
+
+  <div class="wh-kpis" data-live-region="kpi">
+    <span class="wk {{if .Crisis}}wk-bad{{end}}"><b>{{.Active}}</b>aktiv{{if .Crisis}} · {{.Crisis}} Lage{{end}}</span>
+    <span class="wk wk-sev">{{range opts "sev"}}<i class="sev sev-{{.Key}}" title="{{.Label}}">{{.Key}}&nbsp;{{index $.Data.BySeverity .Key}}</i>{{end}}</span>
+    <span class="wk {{if .Overdue}}wk-bad{{end}}"><b>{{.OpenTasks}}</b>Aufgaben{{if .Overdue}} · {{.Overdue}} überfällig{{end}}</span>
+    <span class="wk {{if .Deadlines}}wk-warn{{end}}"><b>{{len .Deadlines}}</b>Meldefristen</span>
+    <span class="wk {{if .Requests}}wk-warn{{end}}"><b>{{len .Requests}}</b>Anfragen/Freigaben</span>
+    <span class="wk"><b>{{.LeakOpen}}</b>Leak-Fälle</span>
+  </div>
+
+  <div class="wh-right">
+    <span class="wh-clock" data-clock></span>
+    <span class="livebadge" id="livebadge" title="Live-Verbindung"><i></i><span>Live</span></span>
+    <button type="button" class="wbtn" data-theme-toggle title="Hell / Dunkel"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17Z" fill="currentColor"/></svg></button>
+    <button type="button" class="wbtn" data-fullscreen title="Vollbild (Taste F)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <a class="wbtn" href="/" title="Zurück zur Normalansicht"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></a>
+  </div>
+</header>
+
+<main class="wgrid">
+  <section class="wpanel wp-tiles">
+    <div class="wp-head"><h2>Aktive Vorfälle</h2><span class="pg-ind"></span></div>
+    <div class="wtiles" data-tiles data-live-region="tiles">
+      {{range .Cards}}{{$in := .In}}
+      <a class="wtile sevbd-{{$in.Severity}} {{if $in.CrisisMode}}crisis{{end}}" href="/incidents/{{$in.ID}}/wall">
+        <div class="wt-head">
+          <span class="sev sev-{{$in.Severity}}">{{$in.Severity}}</span>
+          <span class="tlp tlp-{{$in.TLP}}">TLP:{{$in.TLP}}</span>
+          {{if $in.CrisisMode}}<span class="tag bad">LAGE</span>{{end}}
+          {{if $in.Classification}}<span class="tag bad">{{$in.Classification}}</span>{{end}}
+          {{if $in.Confidential}}<span class="tag">vertraulich</span>{{end}}
+          <span class="wt-num">{{$in.Number}}</span>
+        </div>
+        <div class="wt-title">{{$in.Title}}</div>
+        <div class="wt-phase">
+          <div class="phasebar">{{range $i, $p := opts "phase"}}{{if lt $i 7}}<i class="{{if le $i (phaseIdx $in.Phase)}}done{{end}}"></i>{{end}}{{end}}</div>
+          <span>{{lab "phase" $in.Phase}}</span><span class="muted">· {{cat $in.Category}} · Leitung {{name $.Data.Names $in.Lead}}</span>
+        </div>
+        <div class="wt-counts">
+          <span class="{{if .Counts.OverdueTasks}}bad{{end}}" title="offene Aufgaben">☐ {{.Counts.OpenTasks}}{{if .Counts.OverdueTasks}} ({{.Counts.OverdueTasks}} überf.){{end}}</span>
+          <span class="{{if .Counts.OpenRequests}}warn{{end}}" title="offene Anfragen">✉ {{.Counts.OpenRequests}}</span>
+          {{if .Counts.PendingApprovals}}<span class="warn" title="Freigaben">Freigabe {{.Counts.PendingApprovals}}</span>{{end}}
+          <span class="{{if .Counts.Compromised}}bad{{end}}" title="betroffene / kompromittierte Systeme">▣ {{.Counts.Assets}}{{if .Counts.Compromised}} ({{.Counts.Compromised}} komp.){{end}}</span>
+          <span title="seit Kenntnisnahme">⏱ {{since $in.AwarenessAt}}</span>
+        </div>
+        {{with .Next}}<div class="wt-line wt-deadline {{if .Overdue}}over{{end}}">§ {{.Label}} <b data-due="{{unix .DueAt}}">{{until .DueAt}}</b></div>{{end}}
+        {{if not $in.NextBriefing.IsZero}}<div class="wt-line wt-brief">Lagebesprechung <b data-due="{{unix $in.NextBriefing}}">{{until $in.NextBriefing}}</b></div>{{end}}
+        {{with .Top}}<div class="wt-line wt-next rl-{{.Priority}}">➜ {{.Title}}</div>{{end}}
+        {{with .Sitrep}}<div class="wt-text"><b>Lage {{.No}}:</b> {{.Situation}}</div>{{else}}{{if .HasLast}}<div class="wt-text"><b>{{dt .Last.At}}</b> {{.Last.Text}}</div>{{end}}{{end}}
+      </a>
+      {{else}}
+      <div class="wempty"><b>Keine aktiven Vorfälle</b><span>Ruhige Lage.</span></div>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-a">
+    <div class="wp-head"><h2>Handlungsbedarf</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="actions">
+      {{range .Actions}}
+      <a class="wrow wr-{{.Priority}}" href="/incidents/{{.Incident.ID}}/wall">
+        <span class="rprio rprio-{{.Priority}}">{{prioLabel .Priority}}</span>
+        <span class="wr-main">{{.Title}}<small>{{.Incident.Number}} · {{.Incident.Title}}</small></span>
+      </a>
+      {{else}}<p class="wnone">Kein dringender Handlungsbedarf.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-b">
+    <div class="wp-head"><h2>Meldefristen</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="deadlines">
+      {{range .Deadlines}}
+      <a class="wrow {{if .Overdue}}over{{end}}" href="/incidents/{{.IncidentID}}/wall">
+        <b class="wr-due" data-due="{{unix .DueAt}}">{{until .DueAt}}</b>
+        <span class="wr-main">{{.Label}}<small>{{.IncidentNumber}} · {{.Authority}}</small></span>
+      </a>
+      {{else}}<p class="wnone">Keine offenen Meldefristen.</p>{{end}}
+    </div>
+  </section>
+
+  <section class="wpanel wp-c">
+    <div class="wp-head"><h2>Anfragen &amp; Freigaben</h2><span class="pg-ind"></span></div>
+    <div class="wlist" data-pager data-live-region="requests">
+      {{range .Requests}}
+      <a class="wrow {{if .ReplyOverdue}}over{{end}}" href="/incidents/{{.IncidentID}}/wall">
+        {{if .PendingApproval}}<span class="tag warn">Freigabe</span>{{else}}<span class="tag">{{lab "party" .PartyType}}</span>{{end}}
+        <span class="wr-main">{{.Subject}}<small>{{.IncidentNumber}}{{if .Party}} · {{.Party}}{{end}}{{if not .ReplyDue.IsZero}} · <span data-due="{{unix .ReplyDue}}">{{until .ReplyDue}}</span>{{end}}</small></span>
+      </a>
+      {{else}}<p class="wnone">Keine offenen Anfragen.</p>{{end}}
+    </div>
+  </section>
+</main>
+
+<footer class="wpanel wticker">
+  <div class="wp-head"><h2>Live-Ticker</h2><span class="pg-ind"></span></div>
+  <ol class="wlist wfeed wfeed-row" data-pager data-pager-top data-live-region="ticker">
+    {{range .Ticker}}
+    <li class="jk-{{.Kind}}"><a href="/incidents/{{.IncidentID}}/wall"><time>{{dt .At}}</time> <b>{{.IncidentNumber}}</b> <span class="muted">{{lab "jkind" .Kind}} · {{name $.Data.Names .Actor}}</span><span class="wf-text">{{.Text}}</span></a></li>
+    {{else}}<li class="wnone">Noch keine Einträge.</li>{{end}}
+  </ol>
+</footer>
+</div>
+{{end}}
+{{end}}

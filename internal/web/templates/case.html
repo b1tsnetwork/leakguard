@@ -2,10 +2,21 @@
 {{with .Data}}{{$c := .Case}}{{$u := $c.Checks.User}}
 <div class="pagehead">
   <div>
-    <a class="back" href="/">← Fälle</a>
+    <a class="back" href="/leaks">← Leak-Fälle</a>
     <h1>Fall {{$c.CaseNumber}} <span class="risk risk-{{$c.Risk}}">{{riskLabel $c.Risk}}</span> <span class="status status-{{$c.Status}}">{{statusLabel $c.Status}}</span></h1>
     <p class="muted">Angelegt {{dt $c.CreatedAt}} von {{$c.CreatedBy}} · Kennung <code>{{$c.Identifier}}</code>{{if $c.Source}} · Quelle: {{$c.Source}}{{end}}{{if not $c.LeakDate.IsZero}} · Leak-Datum {{date $c.LeakDate}}{{end}}</p>
   </div>
+  {{if .CanEdit}}
+  <div class="actions">
+  {{if .Incident}}
+    <a class="btn" href="/incidents/{{.Incident.ID}}">Vorfall {{.Incident.Number}} öffnen</a>
+  {{else}}
+  <form method="post" action="/cases/{{$c.ID}}/escalate" class="inline">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <input type="hidden" name="playbook" value="1">
+    <button class="btn" data-confirm="Aus diesem Leak-Fall einen Sicherheitsvorfall mit Stab, Tagebuch und Aufgaben anlegen?">Zu Vorfall eskalieren</button>
+  </form>
+  {{end}}
   <form method="post" action="/cases/{{$c.ID}}/status" class="statusform">
     <input type="hidden" name="csrf" value="{{$.CSRF}}">
     {{if ne $c.Status "abgeschlossen"}}
@@ -16,6 +27,8 @@
       <button class="btn">Wieder öffnen</button>
     {{end}}
   </form>
+  </div>
+  {{else if .Incident}}<a class="btn" href="/incidents/{{.Incident.ID}}">Vorfall {{.Incident.Number}}</a>{{end}}
 </div>
 
 <section class="card verdict verdict-{{$c.Risk}}">

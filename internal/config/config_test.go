@@ -48,7 +48,18 @@ func TestADSSPExampleParses(t *testing.T) {
 		t.Fatal(err)
 	}
 	pol := cfg.ADSSP.Policies[0]
-	if !cfg.ADSSP.Enabled || pol.MinLength != 12 || pol.Rules.KeyboardSequence.Value != 4 || !pol.Rules.Palindrome.Active() || pol.ActiveSinceTime().IsZero() {
+	if !cfg.ADSSP.Enabled || pol.MinLength != 12 || pol.Rules.KeyboardSequence.Value != 4 || len(cfg.Incident.Regulations) != 4 || !pol.Rules.Palindrome.Active() || pol.ActiveSinceTime().IsZero() {
 		t.Fatalf("Beispiel falsch geparst: %+v", pol)
+	}
+}
+
+// Die Vorlage im Repo-Root muss mit der eingebetteten Vorlage identisch sein.
+func TestRootExampleInSync(t *testing.T) {
+	root, err := os.ReadFile(filepath.Join("..", "..", "config.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(root) != exampleConfig {
+		t.Fatal("config.example.yaml (Root) weicht von internal/config/config.example.yaml ab – bitte kopieren")
 	}
 }
