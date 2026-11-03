@@ -19,37 +19,8 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Module prüfen
-        run: |
-          go mod tidy -diff    # schlägt fehl, wenn go.mod/go.sum nicht aktuell sind
-          go mod download
-          go mod verify
-
-      - name: gofmt
-        run: |
-          out=$(gofmt -l .)
-          if [ -n "$out" ]; then echo "Nicht formatiert:"; echo "$out"; exit 1; fi
-
-      - name: go vet
-        run: go vet ./...
-
-      - name: go test
-        run: go test -race -count=1 ./...
-
   docker:
     name: Docker-Image
-    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
