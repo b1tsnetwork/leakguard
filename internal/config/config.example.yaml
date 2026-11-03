@@ -6,7 +6,7 @@
 
 listen: ":8080"
 base_url: "https://leakguard.firma.local"   # für Links in Admin-Mails
-db_path: "leakguard.db"         # -> /data/leakguard.db im Container
+db_path: "data/leakguard.db"         # -> /data/leakguard.db im Container
 
 # Mind. 32 zufällige Zeichen (beim Anlegen automatisch erzeugt), sonst z. B.: openssl rand -base64 48
 # Wird für den HMAC-Fingerabdruck der Kennwörter verwendet -> NICHT nachträglich ändern,
