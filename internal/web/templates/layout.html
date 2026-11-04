@@ -16,6 +16,7 @@
     <a href="/" {{if eq .Nav "lage"}}class="active"{{end}}>Lagezentrum</a>
     <a href="/incidents" {{if eq .Nav "incidents"}}class="active"{{end}}>Vorfälle</a>
     <a href="/leaks" {{if eq .Nav "list"}}class="active"{{end}}>Leak-Prüfung</a>
+    {{if has .Session "leitung"}}<a href="/workflows" {{if eq .Nav "workflows"}}class="active"{{end}}>Workflows</a>{{end}}
     {{if has .Session "admin"}}
     <a href="/settings" {{if eq .Nav "settings"}}class="active"{{end}}>Vorlagen</a>
     <a href="/audit" {{if eq .Nav "audit"}}class="active"{{end}}>Audit-Log</a>

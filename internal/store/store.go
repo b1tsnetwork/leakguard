@@ -126,10 +126,19 @@ func (s *Store) migrate() error {
 	}
 	for _, c := range [][2]string{{"classification", `TEXT NOT NULL DEFAULT ''`}, {"cancelled", `INTEGER NOT NULL DEFAULT 0`},
 		{"cancel_reason", `TEXT NOT NULL DEFAULT ''`}, {"cancelled_at", `INTEGER NOT NULL DEFAULT 0`}, {"cancelled_by", `TEXT NOT NULL DEFAULT ''`},
-		{"purging", `INTEGER NOT NULL DEFAULT 0`}} {
+		{"purging", `INTEGER NOT NULL DEFAULT 0`}, {"wf_version_id", `INTEGER NOT NULL DEFAULT 0`}} {
 		if err := s.addColumn("incidents", c[0], c[1]); err != nil {
 			return err
 		}
+	}
+	if err := s.addColumn("tasks", "wf_step", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if err := s.addColumn("tasks", "rec_key", `TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(workflowSchema); err != nil {
+		return err
 	}
 	// Löschsperren: unveränderlich – außer der Vorfall wird ausdrücklich endgültig gelöscht (PurgeIncident).
 	if _, err := s.db.Exec(`

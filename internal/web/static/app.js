@@ -77,6 +77,107 @@ document.addEventListener("change", (ev) => {
   }
 });
 
+// Benutzer aus einer Vorschlagsliste an ein Textfeld anhängen (z. B. vordefinierte Besetzung)
+document.addEventListener("change", (ev) => {
+  const el = ev.target;
+  if (!el.matches("[data-append-to]") || !el.value.trim()) return;
+  const ta = el.form && el.form.querySelector(`[name="${el.dataset.appendTo}"]`);
+  if (!ta) return;
+  const lines = ta.value.split(/\n/).map((x) => x.trim()).filter(Boolean);
+  if (!lines.includes(el.value.trim())) lines.push(el.value.trim());
+  ta.value = lines.join("\n");
+  el.value = "";
+});
+
+// Farben/Breiten per CSSOM setzen (die CSP verbietet style-Attribute)
+function applyDataStyles(root) {
+  (root || document).querySelectorAll("[data-pc]").forEach((el) => el.style.setProperty("--pc", el.dataset.pc));
+  (root || document).querySelectorAll("[data-pct]").forEach((el) => { el.style.width = Math.max(0, Math.min(100, +el.dataset.pct)) + "%"; });
+}
+applyDataStyles();
+document.addEventListener("lg:refreshed", () => applyDataStyles());
+
+// Aufgabe aus Vorlage: Schritte aus Bibliothek / Workflows als Ausgangspunkt einer Aufgabe
+(function () {
+  const sel = document.querySelector("select[data-task-template]");
+  if (!sel) return;
+  let loaded = null;
+  const load = async () => {
+    if (loaded) return loaded;
+    const res = await fetch("/bibliothek.json", { credentials: "same-origin" });
+    const j = await res.json();
+    loaded = {};
+    (j.sources || []).forEach((src) => {
+      const og = document.createElement("optgroup");
+      og.label = src.name + " (" + src.group + ")";
+      (src.def.steps || []).forEach((st) => {
+        const key = src.id + "|" + st.id;
+        loaded[key] = st;
+        const o = document.createElement("option");
+        o.value = key;
+        o.textContent = st.title;
+        og.appendChild(o);
+      });
+      if (og.children.length) sel.appendChild(og);
+    });
+    return loaded;
+  };
+  sel.addEventListener("focus", () => { load().catch(() => {}); }, { once: true });
+  sel.addEventListener("pointerdown", () => { load().catch(() => {}); }, { once: true });
+  sel.addEventListener("change", async () => {
+    const all = await load();
+    const st = all[sel.value];
+    const f = sel.form;
+    if (!st || !f) return;
+    const set = (n, v) => { const el = f.querySelector(`[name="${n}"]`); if (el && v != null) el.value = v; };
+    set("title", st.title);
+    const fn = f.querySelector('[name="function"]');
+    if (fn && [...fn.options].some((o) => o.value === st.position)) fn.value = st.position || "";
+    set("priority", st.priority || "mittel");
+    if (st.due_hours) {
+      const d = new Date(Date.now() + st.due_hours * 3600 * 1000);
+      const pad = (n) => String(n).padStart(2, "0");
+      set("due_at", `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    }
+    const parts = [];
+    if (st.details) parts.push(st.details);
+    if (st.why) parts.push("Warum: " + st.why);
+    if (st.ref) parts.push("Grundlage: " + st.ref);
+    set("details", parts.join("\n\n"));
+  });
+})();
+
+// Sprungziel (#formular) öffnen und Felder aus der Adresse vorbelegen (?f_feld=wert), z. B. aus Empfehlungen
+(function () {
+  const apply = () => {
+    const id = decodeURIComponent(location.hash.slice(1));
+    if (!id) return;
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.tagName === "DETAILS") el.open = true;
+    const params = new URLSearchParams(location.search);
+    const form = el.matches("form") ? el : el.querySelector("form");
+    if (form) {
+      params.forEach((v, k) => {
+        if (!k.startsWith("f_")) return;
+        const name = k.slice(2);
+        const fields = form.querySelectorAll(`[name="${CSS.escape(name)}"]`);
+        fields.forEach((f) => {
+          if (f.type === "radio" || f.type === "checkbox") f.checked = f.value === v;
+          else if (!f.value || f.dataset.prefilled !== undefined || f.tagName === "SELECT") { f.value = v; f.dataset.prefilled = ""; }
+          f.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+      });
+      const first = form.querySelector("textarea:not([readonly])") || [...form.querySelectorAll("input:not([type=hidden]):not([type=radio]):not([type=checkbox])")].find((f) => !f.value);
+      setTimeout(() => { el.scrollIntoView({ block: "start", behavior: "smooth" }); if (first) first.focus({ preventScroll: true }); }, 50);
+    } else {
+      el.scrollIntoView({ block: "start" });
+    }
+  };
+  apply();
+  window.addEventListener("hashchange", apply);
+})();
+
 // ---------- Restzeiten (data-due = Unix-Sekunden) ----------
 function fmtDue(sec) {
   let d = sec * 1000 - Date.now();

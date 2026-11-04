@@ -14,6 +14,7 @@ import (
 
 	"leakguard/internal/config"
 	"leakguard/internal/model"
+	"leakguard/internal/workflow"
 )
 
 // Prioritäten (aufsteigend sortiert = wichtigste zuerst).
@@ -28,7 +29,7 @@ var prioRank = map[string]int{PrioCritical: 0, PrioHigh: 1, PrioMedium: 2, PrioH
 
 // Action beschreibt, was „Übernehmen“ bewirkt.
 type Action struct {
-	Kind       string // task | playbook | regulation | phase | crisis | link
+	Kind       string // task | playbook | regulation | phase | crisis | link | member
 	Label      string // Beschriftung des Buttons
 	Title      string // Aufgabe
 	Details    string
@@ -37,7 +38,10 @@ type Action struct {
 	DueHours   int
 	Regulation string
 	Phase      string
-	Tab        string // für link
+	Tab        string            // für link (Reiter, optional mit #Anker)
+	Prefill    map[string]string // für link: Formularfelder vorbelegen
+	Step       string            // Workflow-Schritt, aus dem die Aufgabe entsteht
+	Username   string            // für member: vorgesehene Besetzung
 	NeedsLead  bool
 }
 
@@ -82,6 +86,9 @@ type Input struct {
 	Dismissed   map[string]bool
 	Cfg         *config.Incident
 	Now         time.Time
+	// Workflow des Vorfalls (nil = ohne Workflow: eingebaute Stab-/Checklisten-/Playbook-Regeln).
+	Plan     *workflow.Plan
+	PosLabel func(key string) string
 }
 
 type Result struct {
@@ -110,6 +117,16 @@ func (c *ctx) add(r Rec) {
 	if c.Dismissed[r.Key] && !r.Sticky {
 		return
 	}
+	// Bereits als Aufgabe übernommen (auch erledigte): nicht erneut anbieten.
+	// Verworfene Aufgaben gelten als bewusste Entscheidung – außer bei Fristen (Sticky).
+	if r.Action.Kind == "task" {
+		for _, t := range c.Tasks {
+			linked := t.RecKey == r.Key || (r.Action.Title != "" && strings.EqualFold(strings.TrimSpace(t.Title), strings.TrimSpace(r.Action.Title)))
+			if linked && (t.Status != "verworfen" || !r.Sticky) {
+				return
+			}
+		}
+	}
 	for _, x := range c.out {
 		if x.Key == r.Key {
 			return
@@ -136,15 +153,21 @@ func Advise(in Input) Result {
 	} else {
 		c.deadlineRules()
 		c.leadershipRules()
-		c.staffRules()
+		if c.Plan != nil {
+			c.workflowRules()
+		} else {
+			c.staffRules()
+		}
 		c.reportingRules()
 		c.communicationRules()
 		c.technicalRules()
 		c.categoryRules()
 		c.taskRules()
 		c.phaseRules()
-		c.checklistRules()
-		c.playbookRule()
+		if c.Plan == nil {
+			c.checklistRules()
+			c.playbookRule()
+		}
 	}
 	sort.SliceStable(c.out, func(i, j int) bool { return prioRank[c.out[i].Priority] < prioRank[c.out[j].Priority] })
 	return Result{Recs: c.out, Phase: c.phaseCheck()}
@@ -282,6 +305,10 @@ func task(title, fn, prio string, due int, label string) Action {
 
 func link(tab, label string) Action { return Action{Kind: "link", Tab: tab, Label: label} }
 
+func linkPre(tab, label string, prefill map[string]string) Action {
+	return Action{Kind: "link", Tab: tab, Label: label, Prefill: prefill}
+}
+
 // ---------- Fristen ----------
 
 func (c *ctx) deadlineRules() {
@@ -404,7 +431,7 @@ func (c *ctx) staffRules() {
 	for _, n := range needs {
 		if n.when && !c.hasFunction(n.fn) {
 			c.add(Rec{Key: "staff:" + n.fn, Priority: n.prio, Area: "stab",
-				Title: "In den Stab aufnehmen: " + c.Cfg.Function(n.fn).Label,
+				Title: "In den Stab aufnehmen: " + c.posLabel(n.fn),
 				Why:   n.why, Ref: n.ref, Action: Action{Kind: "link", Tab: "stab", Label: "Zum Stab", Function: n.fn}})
 		}
 	}
@@ -453,7 +480,9 @@ func (c *ctx) communicationRules() {
 	if c.sev("P1", "P2") && !c.hasComm("aus", "management") {
 		c.add(Rec{Key: "inform_leadership", Priority: PrioHigh, Area: "kommunikation", Title: "Behördenleitung informieren (" + c.org.Leadership + ")",
 			Why: "Die Behördenleitung trägt die Gesamtverantwortung für die Informationssicherheit und muss über erhebliche Vorfälle, Auswirkungen auf Verwaltungsleistungen und Entscheidungsbedarf zeitnah unterrichtet werden.",
-			Ref: "BSI-Standard 200-1/200-2 (Verantwortung der Leitung), ISMS.1", Action: link("kommunikation#comm-form", "Information dokumentieren")})
+			Ref: "BSI-Standard 200-1/200-2 (Verantwortung der Leitung), ISMS.1", Action: linkPre("kommunikation#comm-form", "Information dokumentieren", map[string]string{
+				"direction": "aus", "scope": "intern", "party_type": "management", "party": c.org.Leadership,
+				"subject": "Unterrichtung der Behördenleitung zu " + in.Number + ": " + in.Title})})
 	}
 	if c.sev("P1") && c.org.Type == "kommune" && !c.hasComm("aus", "council") {
 		c.add(Rec{Key: "inform_council", Priority: PrioMedium, Area: "kommunikation", Title: "Information der politischen Gremien vorbereiten (" + c.org.Council + ")",
@@ -686,6 +715,25 @@ func (c *ctx) phaseCheck() PhaseCheck {
 		add("Alle Aufgaben erledigt", openTasks == 0)
 		add("Alle Meldepflichten abgeschlossen", openObl == 0)
 	}
+	if c.Plan != nil {
+		g := c.Plan.GateFor(pc.Next)
+		total, open := 0, len(g.Steps)
+		for _, st := range c.Plan.Steps {
+			if st.Step.Mandatory && st.Applicable && workflow.PhaseIdx(st.Step.Phase) < workflow.PhaseIdx(pc.Next) {
+				total++
+			}
+		}
+		if total > 0 {
+			add(fmt.Sprintf("Pflichtschritte laut Workflow erledigt (%d von %d)", total-open, total), open == 0)
+		}
+		if len(g.Staff) > 0 {
+			var miss []string
+			for _, ss := range g.Staff {
+				miss = append(miss, c.posLabel(ss.Req.Position))
+			}
+			add("Pflicht-Stabsstellen besetzt (fehlt: "+strings.Join(miss, ", ")+")", false)
+		}
+	}
 	pc.Ready = len(pc.Criteria) > 0
 	for _, cr := range pc.Criteria {
 		pc.Ready = pc.Ready && cr.OK
@@ -742,6 +790,65 @@ func (c *ctx) playbookRule() {
 			Title: fmt.Sprintf("Playbook „%s“ übernehmen (%d Standardaufgaben)", c.Cfg.Category(c.In.Category).Label, missing),
 			Why:   "Für diese Vorfallart gibt es erprobte Standardmaßnahmen. Übernommene Aufgaben können einzeln angepasst oder verworfen werden.",
 			Ref:   "Playbooks (Konfiguration)", Action: Action{Kind: "playbook", Label: "Aufgaben anlegen"}})
+	}
+}
+
+// ---------- Workflow ----------
+
+func (c *ctx) posLabel(key string) string {
+	if c.PosLabel != nil {
+		if l := c.PosLabel(key); l != "" {
+			return l
+		}
+	}
+	if l := c.Cfg.Function(key).Label; l != "" {
+		return l
+	}
+	return key
+}
+
+// workflowRules: Empfehlungen aus dem Workflow – manuelle Schritte und fehlende Stabsstellen, jeweils mit der
+// im Workflow hinterlegten Begründung.
+func (c *ctx) workflowRules() {
+	name := c.Plan.Def.Name
+	for _, st := range c.Plan.Recommend() {
+		prio := PrioMedium
+		if st.Step.Priority == "hoch" || st.Step.Mandatory {
+			prio = PrioHigh
+		}
+		why := st.Step.Why
+		if why == "" {
+			why = "Schritt im Workflow „" + name + "“."
+		}
+		a := task(st.Step.Title, st.Step.Position, orDefault(st.Step.Priority, "mittel"), st.Step.DueHours, "")
+		a.Step, a.Details = st.Step.ID, st.Step.Details
+		c.add(Rec{Key: "wf:" + st.Step.ID, Priority: prio, Area: "aufgaben", Title: st.Step.Title, Why: why,
+			Ref: orDefault(st.Step.Ref, "Workflow „"+name+"“"), Action: a})
+	}
+	for _, ss := range c.Plan.Staff {
+		if !ss.Missing() || ss.Req.Need == "optional" {
+			continue
+		}
+		prio := PrioMedium
+		if ss.Req.Need == "pflicht" {
+			prio = PrioHigh
+		}
+		label := c.posLabel(ss.Req.Position)
+		why := orDefault(ss.Req.Why, ss.Position.Why)
+		if !ss.Req.When.Empty() {
+			why += " (Bedingung: " + ss.Condition + ")"
+		}
+		a := Action{Kind: "link", Tab: "stab", Label: "Zum Stab", Function: ss.Req.Position}
+		if len(ss.Suggest) > 0 {
+			a = Action{Kind: "member", Label: "Vorgesehene Besetzung aufnehmen", Function: ss.Req.Position, Username: ss.Suggest[0], NeedsLead: true}
+			why += " Vorgesehen ist: " + strings.Join(ss.Suggest, ", ") + "."
+		}
+		need := "Pflicht"
+		if ss.Req.Need == "soll" {
+			need = "Soll"
+		}
+		c.add(Rec{Key: "staff:" + ss.Req.Position, Priority: prio, Area: "stab", Title: "In den Stab aufnehmen: " + label + " (" + need + ")",
+			Why: why, Ref: orDefault(orDefault(ss.Req.Ref, ss.Position.Ref), "Workflow „"+name+"“"), Action: a})
 	}
 }
 

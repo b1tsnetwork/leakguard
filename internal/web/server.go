@@ -11,9 +11,11 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
+	"leakguard/internal/advisor"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +26,7 @@ import (
 	"leakguard/internal/mailer"
 	"leakguard/internal/model"
 	"leakguard/internal/store"
+	"leakguard/internal/workflow"
 )
 
 //go:embed templates/*.html
@@ -50,6 +53,7 @@ type Server struct {
 	pages   map[string]*template.Template
 	limiter *limiter
 	hub     *hub
+	wf      wfState
 	Version string
 }
 
@@ -57,6 +61,9 @@ func New(cfg *config.Config, st *store.Store, l *ldapx.Client, e *engine.Engine,
 	s := &Server{cfg: cfg, store: st, ldap: l, engine: e, mailer: m, limiter: newLimiter(), hub: newHub(), Version: version}
 	if err := s.parseTemplates(); err != nil {
 		return nil, err
+	}
+	if err := s.loadWF(context.Background()); err != nil {
+		return nil, fmt.Errorf("workflows: %w", err)
 	}
 	return s, nil
 }
@@ -97,12 +104,24 @@ func (s *Server) parseTemplates() error {
 		"risks": func() []string {
 			return []string{model.RiskCritical, model.RiskHigh, model.RiskMedium, model.RiskLow, model.RiskInfo}
 		},
-		"lab":   func(list, key string) string { return labelOf(labeledLists[list], key) },
-		"opts":  func(list string) []model.Labeled { return labeledLists[list] },
-		"cat":   func(k string) string { return s.cfg.Incident.Category(k).Label },
-		"cats":  func() []config.Option { return s.cfg.Incident.Categories },
-		"fn":    func(k string) string { return s.cfg.Incident.Function(k).Label },
-		"fns":   func() []config.Option { return s.cfg.Incident.Functions },
+		"lab":        func(list, key string) string { return labelOf(labeledLists[list], key) },
+		"opts":       func(list string) []model.Labeled { return labeledLists[list] },
+		"cat":        func(k string) string { return s.cfg.Incident.Category(k).Label },
+		"cats":       func() []config.Option { return s.cfg.Incident.Categories },
+		"fn":         func(k string) string { return s.position(k).Label },
+		"fns":        func() []config.Option { return s.posOptions() },
+		"pos":        func(k string) workflow.Position { return s.position(k) },
+		"recHref":    recHref,
+		"stateLabel": func(k string) string { return workflow.StateLabels[k] },
+		"needLabel":  func(k string) string { return labelOf(workflow.Needs, k) },
+		"kindLabel":  func(k string) string { return labelOf(workflow.StepKinds, k) },
+		"wphases":    workflow.WorkPhases,
+		"pct": func(a, b int) int {
+			if b == 0 {
+				return 100
+			}
+			return a * 100 / b
+		},
 		"regs":  func() []config.Regulation { return s.cfg.Incident.Regulations },
 		"until": until,
 		"since": func(t time.Time) string {
@@ -266,6 +285,28 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /incidents/{id}/purge", auth(s.handleIncidentPurge))
 	mux.Handle("GET /audit", admin(s.handleAudit))
 
+	// Workflows & Stabspositionen (ansehen: Leitung, gestalten: Admin)
+	lead := func(h http.HandlerFunc) http.Handler { return s.requireAuth(s.requireRole(config.RoleLead, h)) }
+	mux.Handle("GET /workflows", lead(s.handleWorkflows))
+	mux.Handle("POST /workflows/new", admin(s.handleWorkflowNew))
+	mux.Handle("POST /workflows/import", admin(s.handleWorkflowImport))
+	mux.Handle("GET /workflows/positions", lead(s.handlePositions))
+	mux.Handle("GET /bibliothek", lead(s.handleLibrary))
+	mux.Handle("GET /bibliothek.json", auth(s.handleLibraryJSON))
+	mux.Handle("GET /bibliothek/{key}", lead(s.handleTemplateView))
+	mux.Handle("POST /bibliothek/{key}/copy", admin(s.handleTemplateCopy))
+	mux.Handle("POST /workflows/{id}/copy", admin(s.handleWorkflowCopy))
+	mux.Handle("POST /workflows/positions", admin(s.handlePositionSave))
+	mux.Handle("POST /workflows/positions/delete", admin(s.handlePositionDelete))
+	mux.Handle("GET /workflows/{id}", lead(s.handleWorkflowDesigner))
+	mux.Handle("GET /workflows/{id}/export.yaml", lead(s.handleWorkflowExport))
+	mux.Handle("POST /workflows/{id}/draft", admin(s.handleWorkflowDraft))
+	mux.Handle("POST /workflows/{id}/publish", admin(s.handleWorkflowPublish))
+	mux.Handle("POST /workflows/{id}/discard", admin(s.handleWorkflowDiscard))
+	mux.Handle("POST /workflows/{id}/archive", admin(s.handleWorkflowArchive))
+	mux.Handle("POST /workflows/{id}/restore", admin(s.handleWorkflowRestore))
+	mux.Handle("POST /incidents/{id}/workflow", auth(s.handleIncidentWorkflow))
+
 	// Leak-Prüfung
 	mux.Handle("GET /leaks", auth(s.handleList))
 	mux.Handle("GET /export.csv", auth(s.handleExport))
@@ -388,12 +429,38 @@ var messages = map[string]string{
 	"purged":             "Vorfall endgültig gelöscht. Der Löschvorgang ist im Audit-Log vermerkt.",
 	"purge_confirm":      "Zur Bestätigung bitte die Vorfallnummer exakt eingeben.",
 	"purge_notcancelled": "Nur stornierte Vorfälle können endgültig gelöscht werden.",
+	"wf_copied":          "Kopie angelegt (Entwurf). Anpassen und veröffentlichen – erst dann wird sie für neue Vorfälle wirksam.",
+	"wf_published":       "Workflow veröffentlicht. Neue Vorfälle nutzen ab sofort diese Version; laufende Vorfälle behalten ihre Version, bis die Leitung aktualisiert.",
+	"wf_invalid":         "Veröffentlichen nicht möglich: Der Entwurf enthält Fehler (siehe Prüfung).",
+	"wf_discarded":       "Entwurf verworfen.",
+	"wf_restored":        "Ältere Version als Entwurf übernommen – prüfen und veröffentlichen.",
+	"wf_imported":        "Workflow importiert (als Entwurf). Bitte prüfen und veröffentlichen.",
+	"wf_import_invalid":  "Import nicht möglich: keine gültige Workflow-Datei.",
+	"pos_inuse":          "Die Position wird noch in Workflows verwendet (oder ist die Leitung) und kann nicht gelöscht werden.",
+	"gate":               "Phasenwechsel angehalten: Laut Workflow sind noch Pflichtpunkte offen. Erledigen oder Abweichung begründen.",
+	"task_locked":        "Diese Aufgabe wartet noch auf Vorgänger aus dem Workflow und kann erst danach begonnen oder erledigt werden.",
+	"task_reason":        "Pflichtschritte dürfen nur mit Begründung (Rückmeldung) verworfen werden.",
 }
 
 var labeledLists = map[string][]model.Labeled{
 	"phase": model.Phases, "sev": model.Severities, "tlp": model.TLPs, "irole": model.IncidentRoles, "jkind": model.JournalKinds,
 	"tstat": model.TaskStatuses, "prio": model.Priorities, "chan": model.CommChannels, "party": model.CommParties,
 	"cstat": model.CommStatuses, "akind": model.AssetKinds, "astat": model.AssetStatuses, "ioc": model.IOCTypes,
+}
+
+// recHref baut den Link einer Empfehlung: Reiter, optionale Formular-Vorbelegung (f_*) und Anker.
+func recHref(id int64, a advisor.Action) template.URL {
+	tab, anchor, _ := strings.Cut(a.Tab, "#")
+	q := url.Values{}
+	q.Set("tab", tab)
+	for k, v := range a.Prefill {
+		q.Set("f_"+k, v)
+	}
+	u := fmt.Sprintf("/incidents/%d?%s", id, q.Encode())
+	if anchor != "" {
+		u += "#" + url.PathEscape(anchor)
+	}
+	return template.URL(u)
 }
 
 func (s *Server) render(w http.ResponseWriter, r *http.Request, name string, p page) {

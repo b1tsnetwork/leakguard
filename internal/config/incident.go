@@ -172,6 +172,8 @@ var defaultCategories = []Option{
 	{Key: "insider", Label: "Insider / Fehlverhalten von Beschäftigten"},
 	{Key: "device_loss", Label: "Verlust / Diebstahl von Geräten oder Datenträgern"},
 	{Key: "supply_chain", Label: "IT-Dienstleister / Rechenzentrum / Lieferkette"},
+	{Key: "infra_outage", Label: "IT-Notfall: Ausfall Infrastruktur (Strom, Netz, Serverraum, Backup)"},
+	{Key: "web_compromise", Label: "Kompromittierte Webseite / Bürgerportal (Defacement)"},
 	{Key: "other", Label: "Sonstiges"},
 }
 

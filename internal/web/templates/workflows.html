@@ -1,0 +1,70 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead">
+  <div>
+    <h1>Workflows</h1>
+    <p class="muted">Abläufe für Vorfallarten: Schritte je Phase mit Begründung, Zuständigkeit, Abhängigkeiten und Bedingungen – plus welche Stabsstellen ab wann dazugehören.</p>
+  </div>
+  <div class="actions">
+    <a class="btn" href="/bibliothek">Bibliothek</a>
+    <a class="btn" href="/workflows/positions">Stabspositionen</a>
+    {{if .CanEdit}}
+    <details class="cancelmenu"><summary class="btn">Import …</summary>
+      <form method="post" action="/workflows/import" enctype="multipart/form-data" class="card dropform">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <b>Workflow importieren (YAML)</b>
+        <p class="small muted">Gleicher Schlüssel = neuer Entwurf des vorhandenen Workflows, sonst neuer Workflow. Fehlende Stabspositionen werden angelegt.</p>
+        <input type="file" name="file" accept=".yaml,.yml,text/yaml" required>
+        <button class="btn primary">Importieren</button>
+      </form>
+    </details>
+    <details class="cancelmenu"><summary class="btn primary">+ Neuer Workflow</summary>
+      <form method="post" action="/workflows/new" class="card dropform">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <b>Neuen Workflow anlegen</b>
+        <label>Name<input name="name" required maxlength="120" placeholder="z. B. Angriff auf Fachverfahren Sozialamt"></label>
+        <label>Ausgangspunkt<select name="from"><option value="0">leer beginnen</option>
+          <optgroup label="Eigene Workflows kopieren">{{range .Workflows}}{{$id := .ID}}{{with .Current}}<option value="{{$id}}">{{.Def.Name}}</option>{{end}}{{end}}</optgroup>
+          <optgroup label="Aus der Bibliothek">{{range .Library}}<option value="tpl:{{.Key}}">{{.Name}}</option>{{end}}</optgroup></select></label>
+        <button class="btn primary">Anlegen und gestalten</button>
+      </form>
+    </details>
+    {{end}}
+  </div>
+</div>
+
+<div class="wfl">
+{{range .Workflows}}{{$c := .Current}}{{if $c}}
+<article class="card wfl-card {{if .Archived}}archived{{end}}" data-pc="{{or $c.Def.Color "#1f5fbf"}}">
+  <header>
+    <h2><a href="/workflows/{{.ID}}">{{$c.Def.Name}}</a></h2>
+    <div class="badges">
+      {{if .Active}}<span class="tag ok">aktiv v{{.Active.Version}}</span>{{end}}
+      {{if .Draft}}<span class="tag warn">Entwurf</span>{{end}}
+      {{if .Archived}}<span class="tag">archiviert</span>{{end}}
+      {{if .Incidents}}<span class="tag">{{.Incidents}} laufende Vorfälle</span>{{end}}
+      {{if $c.Def.Origin}}<span class="tag" title="Aus der eingebauten Bibliothek">Bibliothek</span>{{end}}
+    </div>
+  </header>
+  <p class="small muted">{{$c.Def.Description}}</p>
+  <p class="small"><b>Wird gewählt für:</b> {{if $c.Def.Match.ManualOnly}}nur manuell{{else if $c.Def.Match.Categories}}{{range $i, $k := $c.Def.Match.Categories}}{{if $i}}, {{end}}{{cat $k}}{{end}}{{else}}alle Kategorien (Standard){{end}}</p>
+  <div class="wfl-phases">
+    {{range wphases}}{{$ph := .Key}}<div title="{{.Label}}"><span>{{.Label}}</span><b>{{$.Data.PhaseCount $c $ph}}</b></div>{{end}}
+  </div>
+  <div class="wfl-staff">{{range $c.Def.Staff}}{{$p := pos .Position}}<span class="wb-chip need-{{.Need}}" data-pc="{{or $p.Color "#94a3b8"}}" title="{{$p.Label}} – {{needLabel .Need}} ab {{lab "phase" .Phase}}">{{or $p.Short $p.Label}}</span>{{end}}</div>
+  <footer>
+    <a class="btn small {{if $.Data.CanEdit}}primary{{end}}" href="/workflows/{{.ID}}">{{if $.Data.CanEdit}}Gestalten{{else}}Ansehen{{end}}</a>
+    <a class="btn small" href="/workflows/{{.ID}}/export.yaml">Export</a>
+    {{if $.Data.CanEdit}}
+    <form method="post" action="/workflows/{{.ID}}/copy" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="btn small" title="Als neuen Workflow kopieren">Kopieren</button></form>
+    <form method="post" action="/workflows/{{.ID}}/archive" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <input type="hidden" name="archived" value="{{if .Archived}}0{{else}}1{{end}}">
+      <button class="linkbtn" {{if not .Archived}}data-confirm="Workflow archivieren? Er wird neuen Vorfällen nicht mehr vorgeschlagen; laufende Vorfälle behalten ihn."{{end}}>{{if .Archived}}reaktivieren{{else}}archivieren{{end}}</button></form>
+    {{end}}
+  </footer>
+</article>
+{{end}}{{end}}
+</div>
+{{end}}
+{{end}}

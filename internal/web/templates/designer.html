@@ -1,0 +1,86 @@
+{{define "content"}}
+{{with .Data}}{{$v := .Edit}}
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<div class="wfd-page">
+{{if .Tmpl}}
+<div class="pagehead wfd-pagehead">
+  <div>
+    <a class="back" href="/bibliothek">← Bibliothek</a>
+    <h1><span class="wfd-swatch" data-pc="{{or .Tmpl.Def.Color "#1f5fbf"}}"></span>{{.Tmpl.Name}} <span class="tag">Vorlage · {{.Tmpl.Group}}</span></h1>
+    <p class="muted small">{{.Tmpl.Description}} Die Vorlage selbst ist schreibgeschützt.</p>
+  </div>
+  <div class="actions">
+    {{if .CanEdit}}<form method="post" action="/bibliothek/{{.Tmpl.Key}}/copy" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="btn primary">Kopieren &amp; anpassen</button></form>{{end}}
+  </div>
+</div>
+{{else}}
+<div class="pagehead wfd-pagehead">
+  <div>
+    <a class="back" href="/workflows">← Workflows</a>
+    <h1><span class="wfd-swatch" data-pc="{{or $v.Def.Color "#1f5fbf"}}"></span><span data-wf-name>{{$v.Def.Name}}</span>
+      {{if .ViewOnly}}<span class="tag">Version {{$v.Version}} (nur ansehen)</span>
+      {{else if eq $v.Status "entwurf"}}<span class="tag warn" data-status-label>Entwurf (nicht veröffentlicht)</span>
+      {{else}}<span class="tag ok" data-status-label>Aktiv · Version {{$v.Version}}</span>{{end}}
+      {{if .Info.Archived}}<span class="tag">archiviert</span>{{end}}
+    </h1>
+    <p class="muted small">{{$v.Def.Description}}{{if .Info.Incidents}} · <b>{{.Info.Incidents}}</b> laufende Vorfälle nutzen diesen Workflow{{end}}</p>
+  </div>
+  <div class="actions">
+    <details class="cancelmenu"><summary class="btn ghost">Versionen ({{len .Versions}})</summary>
+      <div class="card dropform wfd-versions">
+        <b>Versionsverlauf</b>
+        <p class="small muted">Laufende Vorfälle bleiben an ihre Version gebunden. Die Leitung kann im Vorfall auf eine neuere Version wechseln.</p>
+        <table class="kvtable">
+        {{range .Versions}}<tr>
+          <th>{{if eq .Status "entwurf"}}Entwurf{{else}}v{{.Version}}{{end}}</th>
+          <td>{{if eq .Status "aktiv"}}<span class="tag ok">aktiv</span>{{else if eq .Status "abgeloest"}}<span class="tag">abgelöst</span>{{end}}
+            <small>{{if .PublishedAt.IsZero}}{{dt .CreatedAt}} · {{.CreatedBy}}{{else}}{{dt .PublishedAt}} · {{.PublishedBy}}{{end}}</small>
+            {{if .Note}}<div class="small">{{.Note}}</div>{{end}}
+            <div class="small">
+              {{if ne .Status "entwurf"}}<a href="/workflows/{{$.Data.Info.ID}}?v={{.ID}}">ansehen</a> · {{end}}
+              <a href="/workflows/{{$.Data.Info.ID}}/export.yaml?v={{.ID}}">YAML</a>
+              {{if and $.Data.CanEdit (ne .Status "entwurf")}} ·
+              <form method="post" action="/workflows/{{$.Data.Info.ID}}/restore" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="version" value="{{.ID}}">
+                <button class="linkbtn" data-confirm="Version {{.Version}} als neuen Entwurf übernehmen? Ein vorhandener Entwurf wird ersetzt.">als Entwurf übernehmen</button></form>{{end}}
+            </div></td></tr>{{end}}
+        </table>
+      </div>
+    </details>
+    <a class="btn" href="/workflows/{{.Info.ID}}/export.yaml">Export</a>
+    {{if .CanEdit}}
+    <details class="cancelmenu"><summary class="btn">Kopieren …</summary>
+      <form method="post" action="/workflows/{{.Info.ID}}/copy" class="card dropform">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <b>Als neuen Workflow kopieren</b>
+        <p class="small muted">Kopiert den aktuellen Stand (inkl. Entwurf) als eigenständigen Workflow. Ungespeicherte Änderungen vorher speichern.</p>
+        <label>Name<input name="name" value="{{$v.Def.Name}} (Kopie)" maxlength="120" required></label>
+        <button class="btn primary">Kopie anlegen</button>
+      </form>
+    </details>
+    {{end}}
+    {{if and .CanEdit (not .ViewOnly)}}
+      {{if and .Info.Active .Info.Draft}}
+      <form method="post" action="/workflows/{{.Info.ID}}/discard" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <button class="btn ghost" data-confirm="Entwurf verwerfen und zur aktiven Version zurückkehren?">Entwurf verwerfen</button></form>
+      {{end}}
+      <details class="cancelmenu" {{if not .Info.Draft}}hidden data-needs-draft{{end}}><summary class="btn primary">Veröffentlichen …</summary>
+        <form method="post" action="/workflows/{{.Info.ID}}/publish" class="card dropform" data-publish>
+          <input type="hidden" name="csrf" value="{{$.CSRF}}">
+          <b>Entwurf veröffentlichen</b>
+          <p class="small muted">Neue Vorfälle nutzen ab sofort die neue Version. Laufende Vorfälle bleiben auf ihrer Version, bis die Leitung aktualisiert. Ungespeicherte Änderungen werden vorher gespeichert.</p>
+          <label>Änderungsnotiz<input name="note" maxlength="2000" placeholder="z. B. Personalrat bei Log-Auswertung ergänzt"></label>
+          <button class="btn primary">Veröffentlichen</button>
+        </form>
+      </details>
+    {{end}}
+  </div>
+</div>
+{{end}}
+{{if .ViewOnly}}<div class="flash">Sie sehen eine ältere Version (nur lesen). <a href="/workflows/{{.Info.ID}}">Zur aktuellen Fassung</a></div>{{end}}
+<div id="wfd-app" class="wfd"><p class="muted">Designer wird geladen …</p></div>
+</div>
+<script type="application/json" id="wf-data">{{.JSON}}</script>
+<script src="/static/designer.js" defer></script>
+{{end}}
+{{end}}

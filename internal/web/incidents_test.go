@@ -98,9 +98,10 @@ func TestIncidentWorkflow(t *testing.T) {
 	path := "/incidents/" + m[1]
 	id := m[1]
 
+	// Workflow „Ransomware“: zum Start nur die Schritte der Phase „Gemeldet“ inkl. Sofortmaßnahme
 	tasks, _ := e.st.Tasks(context.Background(), mustInt(id))
-	if len(tasks) < 5 {
-		t.Fatalf("Playbook-Aufgaben fehlen: %d", len(tasks))
+	if len(tasks) < 3 {
+		t.Fatalf("Workflow-Aufgaben fehlen: %d", len(tasks))
 	}
 	obl, _ := e.st.Obligations(context.Background(), mustInt(id))
 	if len(obl) != 5 {
@@ -291,6 +292,28 @@ func TestRecommendations(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("Aufgabe aus Empfehlung fehlt")
+	}
+	// Dieselbe Empfehlung lässt sich nicht doppelt übernehmen
+	_, _, l2 := e.do("resp", "POST", path+"/recs", url.Values{"key": {"emergency_ops"}, "op": {"apply"}})
+	if !strings.Contains(l2, "rec_gone") {
+		t.Fatalf("Empfehlung doppelt übernehmbar: %s", l2)
+	}
+	tasks2, _ := e.st.Tasks(context.Background(), in.ID)
+	if len(tasks2) != len(tasks) {
+		t.Fatalf("Aufgabe doppelt angelegt: %d → %d", len(tasks), len(tasks2))
+	}
+	for _, tk := range tasks2 {
+		if strings.Contains(tk.Title, "Notbetrieb") && tk.RecKey != "emergency_ops" {
+			t.Fatalf("Aufgabe nicht mit Empfehlung verknüpft: %q", tk.RecKey)
+		}
+	}
+	if b := e.mustOK("resp", "GET", path+"?tab=empfehlungen", nil); strings.Contains(b, `value="emergency_ops"`) {
+		t.Fatal("übernommene Empfehlung wird weiter angeboten")
+	}
+	// Link-Empfehlung: Reiter, Anker und Vorbelegung korrekt (nicht als %23 maskiert)
+	if b := e.mustOK("resp", "GET", path+"?tab=empfehlungen", nil); !strings.Contains(b, "tab=kommunikation") || !strings.Contains(b, "f_party_type=management") ||
+		!strings.Contains(b, "#comm-form") || strings.Contains(b, "%23comm-form") {
+		t.Fatal("Link „Information dokumentieren“ fehlerhaft")
 	}
 	// Verwerfen nur mit Begründung, danach dokumentiert
 	e.mustOK("resp", "POST", path+"/recs", url.Values{"key": {"police"}, "op": {"dismiss"}})

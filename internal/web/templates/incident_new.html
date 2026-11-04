@@ -62,7 +62,13 @@
     </section>
     <section class="card">
       <h2>Vorbereitung</h2>
-      <label class="check"><input type="checkbox" name="playbook" value="1" checked><span>Standard-Aufgaben aus dem Playbook der Kategorie anlegen</span></label>
+      <label>Workflow<select name="workflow" id="wf-select">
+        <option value="auto">Automatisch passend zur Kategorie</option>
+        {{range .Workflows}}<option value="{{.ID}}" data-cats="{{join .Def.Match.Categories " "}}">{{.Def.Name}}</option>{{end}}
+        <option value="0">– ohne Workflow (nur Playbook) –</option>
+      </select></label>
+      <p class="muted small">Der Workflow legt Aufgaben je Phase mit Begründung an, sperrt Schritte bis zu ihren Vorgängern und schlägt die passenden Stabsstellen vor. <a href="/workflows" target="_blank">Workflows ansehen</a></p>
+      <label class="check"><input type="checkbox" name="playbook" value="1" checked><span>Nur ohne Workflow: Standard-Aufgaben aus dem Playbook anlegen</span></label>
       <p class="muted small">Meldepflichten prüfen und aktivieren (Fristen ab Kenntnisnahme):</p>
       {{range regs}}
       <label class="check"><input type="checkbox" name="regulation" value="{{.Key}}"><span><b>{{.Label}}</b><br><small class="muted">{{.Hint}}</small></span></label>

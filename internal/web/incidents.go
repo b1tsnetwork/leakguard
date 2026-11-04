@@ -15,6 +15,7 @@ import (
 	"leakguard/internal/mailer"
 	"leakguard/internal/model"
 	"leakguard/internal/store"
+	"leakguard/internal/workflow"
 )
 
 // ---------- Hilfen ----------
@@ -168,10 +169,11 @@ func (s *Server) handleIncidents(w http.ResponseWriter, r *http.Request) {
 // ---------- Neuer Vorfall ----------
 
 type incNewData struct {
-	In       model.Incident
-	Users    []model.User
-	LeakCase int64
-	Now      time.Time
+	In        model.Incident
+	Users     []model.User
+	LeakCase  int64
+	Now       time.Time
+	Workflows []*workflow.Version
 }
 
 func (s *Server) handleIncidentNew(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +181,7 @@ func (s *Server) handleIncidentNew(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	s.render(w, r, "incident_new", page{Title: "Neuer Vorfall", Nav: "incidents", Data: incNewData{
 		In: model.Incident{Severity: "P3", TLP: "AMBER", Category: r.URL.Query().Get("cat"), Lead: sessionFrom(r).Username,
-			DetectedAt: now, AwarenessAt: now}, Users: users, Now: now}})
+			DetectedAt: now, AwarenessAt: now}, Users: users, Now: now, Workflows: s.activeVersions(r)}})
 }
 
 func (s *Server) incidentFromForm(r *http.Request, in *model.Incident) []string {
@@ -221,14 +223,33 @@ func (s *Server) handleIncidentCreate(w http.ResponseWriter, r *http.Request) {
 	if len(errs) > 0 {
 		_, users := s.names(r)
 		w.WriteHeader(http.StatusBadRequest)
-		s.render(w, r, "incident_new", page{Title: "Neuer Vorfall", Nav: "incidents", Err: strings.Join(errs, " · "), Data: incNewData{In: *in, Users: users, Now: time.Now()}})
+		s.render(w, r, "incident_new", page{Title: "Neuer Vorfall", Nav: "incidents", Err: strings.Join(errs, " · "), Data: incNewData{In: *in, Users: users, Now: time.Now(), Workflows: s.activeVersions(r)}})
 		return
 	}
-	if err := s.createIncident(r, in, formBool(r, "playbook"), r.Form["regulation"]); err != nil {
+	in.WFVersionID = s.chooseWorkflow(r, in, r.FormValue("workflow"))
+	if err := s.createIncident(r, in, formBool(r, "playbook") && in.WFVersionID == 0, r.Form["regulation"]); err != nil {
 		s.fail(w, r, 500, err.Error())
 		return
 	}
 	back(w, r, in.ID, "", "inc_created")
+}
+
+// chooseWorkflow: "" = automatisch passend, "0" = ohne Workflow, sonst Versions-ID.
+func (s *Server) chooseWorkflow(r *http.Request, in *model.Incident, choice string) int64 {
+	switch choice {
+	case "0":
+		return 0
+	case "", "auto":
+		if v := s.selectWorkflow(r.Context(), in); v != nil {
+			return v.ID
+		}
+		return 0
+	}
+	id, _ := strconv.ParseInt(choice, 10, 64)
+	if v := s.version(r.Context(), id); v != nil && v.Status == "aktiv" {
+		return id
+	}
+	return 0
 }
 
 // createIncident legt Vorfall, Stab (Leitung + Ersteller), Playbook-Aufgaben und Meldepflichten an.
@@ -273,6 +294,10 @@ func (s *Server) createIncident(r *http.Request, in *model.Incident, playbook bo
 	for _, key := range regulations {
 		s.activateRegulation(r, in, key)
 	}
+	if v := s.version(ctx, in.WFVersionID); v != nil {
+		s.jlog(r, in.ID, "status", fmt.Sprintf("Workflow „%s“ (Version %d) zugeordnet.", v.Def.Name, v.Version), true)
+	}
+	s.wfSync(r, in)
 	s.notifyNewIncident(in)
 	return nil
 }
@@ -343,12 +368,14 @@ type incView struct {
 	Advice      advisor.Result
 	TopRecs     []advisor.Rec
 	RecCount    int
+	WF          *wfView
 }
 
 var incTabs = []model.Labeled{
 	{Key: "lage", Label: "Lage"},
 	{Key: "empfehlungen", Label: "Empfehlungen"},
 	{Key: "tagebuch", Label: "Einsatztagebuch"},
+	{Key: "workflow", Label: "Workflow"},
 	{Key: "aufgaben", Label: "Aufgaben"},
 	{Key: "kommunikation", Label: "Kommunikation"},
 	{Key: "systeme", Label: "Systeme"},
@@ -387,7 +414,8 @@ func (s *Server) incidentView(r *http.Request, in *model.Incident) *incView {
 	if in.LeakCaseID > 0 {
 		v.LeakCase, _ = s.store.GetCase(ctx, in.LeakCaseID)
 	}
-	v.Advice = s.advise(r, in)
+	v.WF = s.incidentWF(r, v)
+	v.Advice = s.adviseWith(r, in, v.WF.Plan)
 	for _, rc := range v.Advice.Recs {
 		if rc.Priority == advisor.PrioCritical || rc.Priority == advisor.PrioHigh {
 			v.RecCount++
@@ -474,6 +502,7 @@ func (s *Server) handleIncidentUpdate(w http.ResponseWriter, r *http.Request) {
 		s.audit(r, "incident_update", "incident", in.ID, in.ID, strings.Join(ch, "; "))
 		s.jlog(r, in.ID, "status", "Stammdaten geändert: "+strings.Join(ch, "; "), true)
 	}
+	s.wfSync(r, in)
 	back(w, r, in.ID, "lage", "saved")
 }
 
@@ -487,10 +516,26 @@ func (s *Server) handleIncidentPhase(w http.ResponseWriter, r *http.Request) {
 		back(w, r, in.ID, "", "")
 		return
 	}
-	if err := s.setPhase(r, in, phase, clip(r.FormValue("comment"), 2000)); err != nil {
+	comment := clip(r.FormValue("comment"), 2000)
+	if g := s.phaseGate(r, in, phase); g.Open() {
+		override := strings.TrimSpace(r.FormValue("override"))
+		if len([]rune(override)) < 10 {
+			s.gateRedirect(w, r, in, phase)
+			return
+		}
+		txt := fmt.Sprintf("Phasenwechsel nach „%s“ trotz offener Pflichtpunkte des Workflows: %s\nBegründung: %s",
+			labelOf(model.Phases, phase), gateText(g, s), clip(override, 2000))
+		s.audit(r, "phase_gate_override", "incident", in.ID, in.ID, txt)
+		s.jlog(r, in.ID, "decision", txt, false)
+		if comment == "" {
+			comment = "Abweichung vom Workflow: " + clip(override, 2000)
+		}
+	}
+	if err := s.setPhase(r, in, phase, comment); err != nil {
 		s.fail(w, r, 500, err.Error())
 		return
 	}
+	s.wfSync(r, in)
 	back(w, r, in.ID, "", "phase")
 }
 
@@ -550,6 +595,7 @@ func (s *Server) handleIncidentCrisis(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "incident_crisis", "incident", in.ID, in.ID, txt)
 	s.jlog(r, in.ID, "status", txt, true)
+	s.wfSync(r, in)
 	back(w, r, in.ID, "", "saved")
 }
 
@@ -615,7 +661,7 @@ func (s *Server) handleTaskCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := &model.Task{IncidentID: in.ID, Title: clip(r.FormValue("title"), 300), Details: clip(r.FormValue("details"), 10000),
-		Function: optOneOf(r.FormValue("function"), s.cfg.Incident.Functions, ""), Assignee: strings.TrimSpace(r.FormValue("assignee")),
+		Function: optOneOf(r.FormValue("function"), s.posOptions(), ""), Assignee: strings.TrimSpace(r.FormValue("assignee")),
 		Priority: oneOf(r.FormValue("priority"), model.Priorities, "mittel"), DueAt: parseDT(r.FormValue("due_at")), CreatedBy: sessionFrom(r).Username}
 	if t.Title == "" {
 		back(w, r, in.ID, "aufgaben", "invalid")
@@ -682,6 +728,20 @@ func (s *Server) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 	if _, ok := r.Form["due_at"]; ok {
 		t.DueAt = parseDT(r.FormValue("due_at"))
 	}
+	var step *workflow.StepState
+	if t.WFStep != "" && t.Status != old.Status {
+		if p, _ := s.planFor(r, in); p != nil {
+			step = p.ByTask[t.ID]
+			if _, locked := p.Locked(t.ID); locked && (t.Status == "in_arbeit" || t.Status == "erledigt") {
+				back(w, r, in.ID, or(r.FormValue("return"), "aufgaben"), "task_locked")
+				return
+			}
+			if step != nil && step.Step.Mandatory && t.Status == "verworfen" && strings.TrimSpace(t.Result) == "" {
+				back(w, r, in.ID, or(r.FormValue("return"), "aufgaben"), "task_reason")
+				return
+			}
+		}
+	}
 	if !t.Open() && old.Open() {
 		t.DoneAt, t.DoneBy = time.Now(), sessionFrom(r).Username
 	} else if t.Open() {
@@ -711,6 +771,12 @@ func (s *Server) handleTaskUpdate(w http.ResponseWriter, r *http.Request) {
 		if old.Assignee != t.Assignee {
 			s.notifyTask(r, in, t)
 		}
+	}
+	if step != nil && t.Status == "erledigt" && old.Status != "erledigt" && step.Step.Kind == "entscheidung" {
+		s.jlog(r, in.ID, "decision", fmt.Sprintf("Entscheidung (Workflow): %s\n%s", t.Title, or(t.Result, "ohne Begründung dokumentiert")), false)
+	}
+	if step != nil && t.Status == "verworfen" && old.Status != "verworfen" {
+		s.jlog(r, in.ID, "decision", fmt.Sprintf("Workflow-Schritt verworfen: %s\nBegründung: %s", t.Title, or(t.Result, "–")), false)
 	}
 	back(w, r, in.ID, r.FormValue("return"), "")
 }
@@ -830,6 +896,7 @@ func (s *Server) handleAssetCreate(w http.ResponseWriter, r *http.Request) {
 	txt := fmt.Sprintf("System erfasst: %s (%s) – %s", a.Name, labelOf(model.AssetKinds, a.Kind), labelOf(model.AssetStatuses, a.Status))
 	s.audit(r, "asset_create", "asset", a.ID, in.ID, txt)
 	s.jlog(r, in.ID, "system", txt, true)
+	s.wfSync(r, in)
 	back(w, r, in.ID, "systeme", "")
 }
 
@@ -860,6 +927,7 @@ func (s *Server) handleAssetUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "asset_update", "asset", a.ID, in.ID, txt)
 	s.jlog(r, in.ID, "system", txt, true)
+	s.wfSync(r, in)
 	back(w, r, in.ID, "systeme", "")
 }
 
@@ -936,6 +1004,7 @@ func (s *Server) handleObligationActivate(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.activateRegulation(r, in, r.FormValue("regulation"))
+	s.wfSync(r, in)
 	back(w, r, in.ID, "meldepflichten", "")
 }
 
@@ -1004,13 +1073,13 @@ func (s *Server) handleMemberAdd(w http.ResponseWriter, r *http.Request) {
 	if d == "" {
 		d = user
 	}
-	m := model.Member{IncidentID: in.ID, Username: user, Display: d, Function: optOneOf(r.FormValue("function"), s.cfg.Incident.Functions, "member"),
+	m := model.Member{IncidentID: in.ID, Username: user, Display: d, Function: optOneOf(r.FormValue("function"), s.posOptions(), "member"),
 		Role: oneOf(r.FormValue("role"), model.IncidentRoles, model.IRoleMember), AddedBy: sessionFrom(r).Username}
 	if err := s.store.UpsertMember(r.Context(), m); err != nil {
 		s.fail(w, r, 500, err.Error())
 		return
 	}
-	txt := fmt.Sprintf("Stab: %s als %s (%s)", d, s.cfg.Incident.Function(m.Function).Label, labelOf(model.IncidentRoles, m.Role))
+	txt := fmt.Sprintf("Stab: %s als %s (%s)", d, s.position(m.Function).Label, labelOf(model.IncidentRoles, m.Role))
 	s.audit(r, "member_upsert", "member", 0, in.ID, user+": "+txt)
 	s.jlog(r, in.ID, "member", txt, true)
 	back(w, r, in.ID, "stab", "")
@@ -1089,7 +1158,8 @@ func (s *Server) handleLeakEscalate(w http.ResponseWriter, r *http.Request) {
 	if c.Checks.User != nil && (len(c.Checks.User.Privileged) > 0 || c.Checks.User.AdminCount) {
 		in.ImpactI = true
 	}
-	if err := s.createIncident(r, in, formBool(r, "playbook"), nil); err != nil {
+	in.WFVersionID = s.chooseWorkflow(r, in, "auto")
+	if err := s.createIncident(r, in, formBool(r, "playbook") && in.WFVersionID == 0, nil); err != nil {
 		s.fail(w, r, 500, err.Error())
 		return
 	}

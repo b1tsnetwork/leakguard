@@ -1,0 +1,77 @@
+{{define "content"}}
+{{with .Data}}
+<datalist id="userlist">{{range .Users}}<option value="{{.Username}}">{{.Display}}</option>{{end}}</datalist>
+<div class="pagehead">
+  <div>
+    <a class="back" href="/workflows">← Workflows</a>
+    <h1>Stabspositionen</h1>
+    <p class="muted">Die Bibliothek der Stellen im Stab: wofür sie da sind, <b>warum</b> sie in den Stab gehören und wer sie <b>vordefiniert besetzt</b>. Workflows legen fest, ab welcher Phase und unter welchen Bedingungen eine Position gebraucht wird.</p>
+  </div>
+  {{if .CanEdit}}
+  <div class="actions">
+    <details class="cancelmenu"><summary class="btn primary">+ Neue Position</summary>
+      <form method="post" action="/workflows/positions" class="card dropform posform">
+        <input type="hidden" name="csrf" value="{{$.CSRF}}">
+        <b>Neue Stabsposition</b>
+        <div class="row3"><label>Schlüssel<input name="key" required pattern="[a-z0-9][a-z0-9_\-]{0,39}" placeholder="z. B. it_sicherheit_rz"></label>
+          <label>Kürzel<input name="short" maxlength="8" placeholder="z. B. S6"></label>
+          <label>Farbe<input type="color" name="color" value="#64748b"></label></div>
+        <label>Bezeichnung<input name="label" required maxlength="120"></label>
+        <label>Gruppe<select name="group">{{range $.Data.GroupOpts}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
+        <button class="btn primary">Anlegen</button>
+      </form>
+    </details>
+  </div>
+  {{end}}
+</div>
+
+{{range .Groups}}{{if .Positions}}
+<h2 class="posgroup">{{.Group.Label}}</h2>
+<div class="poslist">
+{{range .Positions}}
+<article class="card pos" id="pos-{{.Key}}" data-pc="{{or .Color "#64748b"}}">
+  <header>
+    <span class="wp-short">{{or .Short "–"}}</span>
+    <div><h3>{{.Label}}</h3><small class="muted"><code>{{.Key}}</code> · Standardrolle: {{lab "irole" (or .Role "mitglied")}}{{with index $.Data.Usage .Key}} · {{.}}{{end}}</small></div>
+  </header>
+  {{if .Description}}<p>{{.Description}}</p>{{end}}
+  {{if .Why}}<div class="pos-why"><b>Warum im Stab?</b> {{.Why}}{{if .Ref}}<small> – {{.Ref}}</small>{{end}}</div>{{end}}
+  {{if .Duties}}<ul class="pos-duties">{{range .Duties}}<li>{{.}}</li>{{end}}</ul>{{end}}
+  <div class="pos-holders"><b>Vordefinierte Besetzung:</b>
+    {{if .Holders}}{{range $i, $h := .Holders}}<span class="chip on" title="{{if eq $i 0}}Hauptbesetzung{{else}}Vertretung {{$i}}{{end}}">{{if eq $i 0}}★ {{end}}{{$h}}</span>{{end}}
+    {{else}}<span class="muted small">keine – wird im Vorfall manuell besetzt</span>{{end}}</div>
+  {{if $.Data.CanEdit}}
+  <details class="pos-edit"><summary class="small">Bearbeiten</summary>
+    <form method="post" action="/workflows/positions" class="posform">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="key" value="{{.Key}}">
+      <div class="row3">
+        <label>Bezeichnung<input name="label" value="{{.Label}}" required maxlength="120"></label>
+        <label>Kürzel<input name="short" value="{{.Short}}" maxlength="8"></label>
+        <label>Farbe<input type="color" name="color" value="{{or .Color "#64748b"}}"></label>
+      </div>
+      <div class="row3">
+        <label>Gruppe<select name="group">{{$g := .Group}}{{range $.Data.GroupOpts}}<option value="{{.Key}}" {{if eq .Key $g}}selected{{end}}>{{.Label}}</option>{{end}}</select></label>
+        <label>Standardrolle im Vorfall<select name="role">{{$r := .Role}}{{range opts "irole"}}{{if ne .Key "leitung"}}<option value="{{.Key}}" {{if eq .Key $r}}selected{{end}}>{{.Label}}</option>{{end}}{{end}}</select></label>
+        <label>Sortierung<input type="number" name="sort" value="{{.Sort}}"></label>
+      </div>
+      <label>Aufgabe der Position<textarea name="description" rows="2">{{.Description}}</textarea></label>
+      <label>Warum gehört die Position in den Stab?<textarea name="why" rows="3" placeholder="Wird im Vorfall und in den Empfehlungen angezeigt">{{.Why}}</textarea></label>
+      <label>Grundlage / Referenz<input name="ref" value="{{.Ref}}"></label>
+      <label>Aufgaben im Stab (eine pro Zeile)<textarea name="duties" rows="3">{{join .Duties "\n"}}</textarea></label>
+      <label>Vordefinierte Besetzung (Benutzernamen, erste = Hauptbesetzung, weitere = Vertretung)
+        <textarea name="holders" rows="2" placeholder="m.mustermann&#10;e.vertretung">{{join .Holders "\n"}}</textarea></label>
+      <p class="small muted">Vorschlag aus der Benutzerliste: <input list="userlist" class="small-input" placeholder="Benutzer suchen …" data-append-to="holders"></p>
+      <div class="wi-actions"><button class="btn primary">Speichern</button></div>
+    </form>
+    {{if ne .Key "lead"}}
+    <form method="post" action="/workflows/positions/delete" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="key" value="{{.Key}}">
+      <button class="linkbtn danger" data-confirm="Position „{{.Label}}“ löschen? Nur möglich, wenn kein Workflow sie verwendet.">Position löschen</button></form>
+    {{end}}
+  </details>
+  {{end}}
+</article>
+{{end}}
+</div>
+{{end}}{{end}}
+{{end}}
+{{end}}

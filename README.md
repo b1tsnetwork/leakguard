@@ -63,6 +63,97 @@ Antwortpufferung für `/live` deaktivieren (Caddy erkennt `text/event-stream` au
 | Tagebuch, Aufgaben, Kommunikation, Systeme, IOCs, Lagemeldung | im Vorfall: Mitglied (bearbeiter in nicht vertraulichen Vorfällen automatisch) |
 | Phase, Stammdaten, Stab, Meldepflichten, Freigabe externer Kommunikation | im Vorfall: Leitung (globale Rolle leitung automatisch) |
 | Vorlagen, globales Audit-Log, alles Vertrauliche | admin |
+| Workflows und Stabspositionen ansehen | leitung |
+| Workflows gestalten, veröffentlichen, importieren; Stabspositionen pflegen | admin |
+
+### Workflows: Abläufe, Stab und Begründungen selbst gestalten
+
+Menü **Workflows**. Ein Workflow beschreibt für eine Vorfallart, **was in welcher Phase zu tun ist, wer zuständig ist,
+warum es notwendig ist** und **welche Stabsstellen ab wann dazugehören**. Mitgeliefert werden ein Standardablauf und
+Szenarien für Ransomware, Phishing, Kontokompromittierung, kompromittierte Zugangsdaten, Datenabfluss, Schadsoftware,
+Ausfall von Fachverfahren, Geräteverlust, Insider und Betrug, jeweils mit Begründung und Grundlage (BSI 200-4,
+IT-Grundschutz, DSGVO, NIST SP 800-61) und auf den öffentlichen Dienst zugeschnitten.
+
+**Designer** (grafisch, Speichern mit Strg+S, Rückgängig mit Strg+Z):
+
+* **Phasen-Board**: Spalten = Phasen, Karten = Schritte. Karten per Drag & Drop zwischen Phasen verschieben und sortieren.
+  Eine Stabsposition aus der linken Leiste **auf eine Karte** ziehen = zuständig; **in den Phasenkopf** ziehen = ab dort im Stab.
+* **Ablaufgraph**: Abhängigkeiten als Pfeile. Den Punkt rechts an einer Karte auf einen anderen Schritt ziehen = „wartet auf“.
+  Beim Überfahren wird die ganze Kette hervorgehoben. Karten lassen sich frei verschieben (auch in andere Phasen),
+  „Automatisch anordnen“ sortiert nach Abhängigkeiten.
+* **Stabsmatrix**: Positionen × Phasen. Balken zeigen Pflicht/Soll/Optional ab einer Phase, Zahlen die zuständigen Schritte.
+* **Einstellungen**: Name, für welche Kategorien und unter welchen Bedingungen der Workflow automatisch gewählt wird.
+* **Inspektor** je Schritt: Art (Aufgabe, Entscheidung, Prüfung, Meldung, Kommunikation), Phase, zuständige Position,
+  Priorität, Frist (ab Kenntnisnahme oder ab Anlage), **Warum?** und Grundlage, Hinweise, Pflichtschritt (Phasen-Gate),
+  „nur empfehlen“, Vorgänger und **Bedingungen** (Schwere, Kategorie, personenbezogene Daten, Lage, Verfügbarkeit,
+  kompromittierte Systeme, VS-NfD, NIS2, Anzahl Betroffene, aktive Meldepflichten …, verknüpft mit und/oder).
+* **▶ Vorschau**: Szenario einstellen und sofort sehen, welche Schritte und Stabsstellen gelten.
+* **Prüfung**: Zyklen, Vorgänger aus späteren Phasen, fehlende Zuständigkeit oder Begründung. Mit Fehlern kann nicht veröffentlicht werden.
+
+**Bibliothek (immer vorinstalliert):** Unter *Workflows → Bibliothek* stehen 60 gepflegte Abläufe bereit, gruppiert nach
+Grundablauf, Cyberangriff, Konten & Zugangsdaten, Datenschutz & Daten, IT-Notfall & Ausfall sowie Betrug & Missbrauch:
+
+| Automatisch nach Kategorie | Nur manuell wählbar (Spezialabläufe) |
+|---|---|
+| Standardablauf, Ransomware, Schadsoftware, DDoS auf Webportal, Kritische Schwachstelle / Zero-Day, Kompromittierte Webseite / Bürgerportal, Phishing, Kompromittiertes Konto, Kompromittierte Zugangsdaten, Datenabfluss, Geräteverlust, Ausfall Fachverfahren, Sicherheitsvorfall beim IT-Dienstleister / RZ, IT-Notfall Ausfall Infrastruktur, Insider, Betrug | Kompromittierung Active Directory / Domäne, Kompromittierung Cloud-/M365-Mandant, Missbrauch eines Behörden-Postfachs, Datenverlust / Ausfall der Datensicherung, Brand / Wasser / Einbruch im Serverraum |
+
+**Kleinere Vorfälle (39 Abläufe, begrenzter Stab):** schlanker Grundablauf (Erfassen und Einstufen, Meldepflichten prüfen,
+Ausweitung prüfen, Kurzabschluss) mit kleinem Stab: Leitung und ISB, DSB nur bei personenbezogenen Daten, weitere
+Stellen nur, wo der Fall sie wirklich braucht. Bei Angabe der Schwere werden sie für P3/P4 automatisch gewählt, für P1/P2
+der große Ablauf. Weitet sich der Fall aus, wechselt die Leitung den Workflow. Enthalten sind unter anderem:
+
+* *Konten:* Phishing gemeldet bzw. geklickt, einzelnes geleaktes Kennwort, verdächtige Anmeldung, MFA-Fatigue,
+  geteiltes Konto, aktives Konto ausgeschiedener Beschäftigter, Verlust von Token oder Dienstausweis
+* *Schadsoftware & Geräte:* Virenfund (bereinigt), Schadsoftware auf einem Client, USB-Fund, Dienst-Smartphone, Schatten-IT
+* *Datenschutz:* Fehlversand, offener Verteiler, zu weite Freigabe oder öffentlicher Link, Papierakten, Geräte- oder
+  Datenträgerverlust, versehentliche Veröffentlichung (Website/Ratsinformationssystem), unberechtigte Abfrage im
+  Fachverfahren, nicht gelöschtes Altgerät
+* *Online-Dienste:* abgewehrter DDoS, abgelaufenes Zertifikat oder Domain, gefälschte Behörden-Website, Fake- bzw.
+  gehacktes Social-Media-Profil, Schwachstelle in einem System, Responsible Disclosure, Scans und erfolglose Angriffe
+* *Betrug:* gefälschte Rechnung bzw. Kontoänderung, CEO-Fraud-Versuch, Vishing, Erpressungsmail ohne Substanz
+* *IT-Notfall:* Ausfall eines Fachverfahrens, fehlgeschlagene Sicherung, kurzer Stromausfall/USV-Alarm, Ausfall der
+  Standortanbindung, Ausfall der Telefonie/115, unbefugter Zutritt zum Technikraum
+
+Die Bibliothek lässt sich nach „Größere Lagen“ und „Kleinere Vorfälle“ filtern und durchsuchen.
+
+Jeder Ablauf wird beim Start als Workflow installiert. Neue Abläufe späterer Versionen kommen automatisch hinzu.
+Bereits installierte werden **nie überschrieben**, auch wenn sie geändert oder archiviert sind. Hat die Bibliothek
+eine neuere Fassung, zeigt die Bibliothek „Neuerungen übernehmen“ an. Die IT-Notfall-Abläufe lassen die
+angriffsbezogenen Standardschritte weg. Neue Standardkategorien dafür: `infra_outage` und `web_compromise`.
+
+**Kopieren und übernehmen:**
+
+* *Kopieren & anpassen*: aus jeder Bibliotheksvorlage. *Kopieren*: jeden eigenen Workflow (Übersicht oder Designer).
+  *Neuer Workflow*: wahlweise leer, als Kopie eines Workflows oder aus der Bibliothek.
+* **⇩ Bausteine übernehmen** im Designer: Schritte und Stabsanforderungen aus einer Vorlage oder einem anderen Workflow
+  auswählen. Vorgänger werden auf Wunsch mitgenommen, Abhängigkeiten nachgebildet. Gleichnamige Schritte werden
+  übersprungen und nur verknüpft, aktualisiert oder als Kopie angelegt.
+* **Eigenschaften übernehmen …** im Inspektor eines Schritts oder einer Stabsanforderung: aus allen Bibliotheks- und
+  Workflow-Bausteinen (Suche, ähnlichste zuerst) gezielt Begründung und Grundlage, Hinweise, Bedingungen,
+  Zuständigkeit, Priorität und Frist, Pflicht, Art, Titel oder Phase übertragen. Rückgängig mit Strg+Z.
+* Im Vorfall unter *Aufgaben → Aufgabe erteilen*: **Aus Vorlage übernehmen** füllt Titel, Zuständigkeit, Priorität,
+  Frist und Begründung aus jedem Bibliotheks- oder Workflow-Schritt vor.
+
+**Versionen:** Speichern erzeugt einen Entwurf, **Veröffentlichen** eine neue Version. Neue Vorfälle nutzen die aktive
+Version; laufende Vorfälle bleiben auf ihrer Version, bis die Leitung im Vorfall aktualisiert. Ältere Versionen lassen
+sich ansehen und als Entwurf zurückholen. Export/Import als YAML (ohne Personen).
+
+**Stabspositionen** (Workflows → Stabspositionen): Bezeichnung, Kürzel, Farbe, Aufgabe, **warum die Position in den Stab
+gehört**, Aufgaben im Stab, Standardrolle und **vordefinierte Besetzung** (erste Person = Hauptbesetzung, weitere = Vertretung).
+
+**Im Vorfall:**
+
+* Der passende Workflow wird beim Anlegen automatisch gewählt (oder manuell, oder „ohne Workflow“).
+* Erreicht der Vorfall eine Phase, werden deren Schritte als Aufgaben angelegt. Bedingungen werden laufend neu
+  ausgewertet, etwa wenn sich die Schwere ändert oder personenbezogene Daten hinzukommen.
+* Aufgaben zeigen **„Warum?“**, Pflichtkennzeichen und **🔒 wartet auf …**. Gesperrte Aufgaben lassen sich erst nach
+  ihren Vorgängern beginnen oder erledigen. Pflichtschritte dürfen nur mit Begründung verworfen werden.
+  Erledigte Entscheidungen landen im Einsatztagebuch.
+* **Phasen-Gate:** Ein Phasenwechsel mit offenen Pflichtschritten oder unbesetzten Pflicht-Stabsstellen ist nur mit
+  begründeter Abweichung möglich. Sie wird als Entscheidung dokumentiert.
+* Reiter **Workflow**: Fortschritt je Phase und Ablaufgraph bzw. Board mit dem Zustand jedes Schritts.
+* Reiter **Stab**: Soll-Ist-Abgleich mit Begründung und Ein-Klick-Aufnahme der vorgesehenen Besetzung. Fehlende
+  Pflicht-/Soll-Stellen erscheinen als Empfehlung. Optional nimmt der Workflow die Besetzung automatisch auf.
 
 ### Handlungsempfehlungen & nächste Schritte
 

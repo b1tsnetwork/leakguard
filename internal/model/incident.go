@@ -114,6 +114,7 @@ type Incident struct {
 	CancelReason string
 	CancelledAt  time.Time
 	CancelledBy  string
+	WFVersionID  int64 // gebundene Workflow-Version (0 = ohne Workflow)
 
 	CreatedAt time.Time
 	CreatedBy string
@@ -187,6 +188,8 @@ type Task struct {
 	UpdatedAt  time.Time
 	DoneAt     time.Time
 	DoneBy     string
+	WFStep     string // Schritt-ID aus dem Workflow (leer = manuell angelegt)
+	RecKey     string // Empfehlung, aus der die Aufgabe übernommen wurde
 	// Join
 	IncidentNumber string
 	IncidentTitle  string

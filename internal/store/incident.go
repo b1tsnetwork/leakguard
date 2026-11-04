@@ -275,7 +275,7 @@ func (s *Store) User(ctx context.Context, username string) (model.User, error) {
 const incCols = `i.id, i.number, i.title, i.category, i.severity, i.phase, i.tlp, i.classification, i.confidential, i.description, i.source, i.reported_by, i.lead,
 	i.impact_c, i.impact_i, i.impact_a, i.personal_data, i.affected_users, i.occurred_at, i.detected_at, i.awareness_at, i.contained_at,
 	i.resolved_at, i.closed_at, i.crisis_mode, i.next_briefing, i.root_cause, i.lessons, i.improvements, i.leak_case_id,
-	i.created_at, i.created_by, i.updated_at, i.cancelled, i.cancel_reason, i.cancelled_at, i.cancelled_by`
+	i.created_at, i.created_by, i.updated_at, i.cancelled, i.cancel_reason, i.cancelled_at, i.cancelled_by, i.wf_version_id`
 
 func scanIncident(r scanner) (*model.Incident, error) {
 	var i model.Incident
@@ -283,7 +283,7 @@ func scanIncident(r scanner) (*model.Incident, error) {
 	var occ, det, aw, cont, res, clo, nb, cr, up, cat int64
 	if err := r.Scan(&i.ID, &i.Number, &i.Title, &i.Category, &i.Severity, &i.Phase, &i.TLP, &i.Classification, &conf, &i.Description, &i.Source,
 		&i.ReportedBy, &i.Lead, &ic, &ii, &ia, &pd, &i.AffectedUsers, &occ, &det, &aw, &cont, &res, &clo, &crisis, &nb,
-		&i.RootCause, &i.Lessons, &i.Improvements, &i.LeakCaseID, &cr, &i.CreatedBy, &up, &canc, &i.CancelReason, &cat, &i.CancelledBy); err != nil {
+		&i.RootCause, &i.Lessons, &i.Improvements, &i.LeakCaseID, &cr, &i.CreatedBy, &up, &canc, &i.CancelReason, &cat, &i.CancelledBy, &i.WFVersionID); err != nil {
 		return nil, err
 	}
 	i.Confidential, i.ImpactC, i.ImpactI, i.ImpactA, i.PersonalData, i.CrisisMode = b(conf), b(ic), b(ii), b(ia), b(pd), b(crisis)
@@ -311,10 +311,10 @@ func (s *Store) CreateIncident(ctx context.Context, prefix string, in *model.Inc
 	in.CreatedAt, in.UpdatedAt = now, now
 	res, err := tx.ExecContext(ctx, `INSERT INTO incidents (number, title, category, severity, phase, tlp, classification, confidential, description, source,
 		reported_by, lead, impact_c, impact_i, impact_a, personal_data, affected_users, occurred_at, detected_at, awareness_at, crisis_mode,
-		leak_case_id, created_at, created_by, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		leak_case_id, created_at, created_by, updated_at, wf_version_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		in.Number, in.Title, in.Category, in.Severity, in.Phase, in.TLP, in.Classification, b2i(in.Confidential), in.Description, in.Source,
 		in.ReportedBy, in.Lead, b2i(in.ImpactC), b2i(in.ImpactI), b2i(in.ImpactA), b2i(in.PersonalData), in.AffectedUsers,
-		ts(in.OccurredAt), ts(in.DetectedAt), ts(in.AwarenessAt), b2i(in.CrisisMode), in.LeakCaseID, ts(now), in.CreatedBy, ts(now))
+		ts(in.OccurredAt), ts(in.DetectedAt), ts(in.AwarenessAt), b2i(in.CrisisMode), in.LeakCaseID, ts(now), in.CreatedBy, ts(now), in.WFVersionID)
 	if err != nil {
 		return err
 	}
@@ -330,12 +330,12 @@ func (s *Store) UpdateIncident(ctx context.Context, in *model.Incident) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE incidents SET title=?, category=?, severity=?, phase=?, tlp=?, classification=?, confidential=?, description=?,
 		source=?, reported_by=?, lead=?, impact_c=?, impact_i=?, impact_a=?, personal_data=?, affected_users=?, occurred_at=?, detected_at=?,
 		awareness_at=?, contained_at=?, resolved_at=?, closed_at=?, crisis_mode=?, next_briefing=?, root_cause=?, lessons=?, improvements=?,
-		leak_case_id=?, updated_at=?, cancelled=?, cancel_reason=?, cancelled_at=?, cancelled_by=? WHERE id=?`,
+		leak_case_id=?, updated_at=?, cancelled=?, cancel_reason=?, cancelled_at=?, cancelled_by=?, wf_version_id=? WHERE id=?`,
 		in.Title, in.Category, in.Severity, in.Phase, in.TLP, in.Classification, b2i(in.Confidential), in.Description, in.Source, in.ReportedBy, in.Lead,
 		b2i(in.ImpactC), b2i(in.ImpactI), b2i(in.ImpactA), b2i(in.PersonalData), in.AffectedUsers, ts(in.OccurredAt), ts(in.DetectedAt),
 		ts(in.AwarenessAt), ts(in.ContainedAt), ts(in.ResolvedAt), ts(in.ClosedAt), b2i(in.CrisisMode), ts(in.NextBriefing),
 		in.RootCause, in.Lessons, in.Improvements, in.LeakCaseID, ts(in.UpdatedAt), b2i(in.Cancelled), in.CancelReason,
-		ts(in.CancelledAt), in.CancelledBy, in.ID)
+		ts(in.CancelledAt), in.CancelledBy, in.WFVersionID, in.ID)
 	return err
 }
 
@@ -524,7 +524,7 @@ func (s *Store) LastJournal(ctx context.Context, incidentID int64) (model.Journa
 // ---------- Aufgaben ----------
 
 const tCols = `t.id, t.incident_id, t.title, t.details, t.function, t.assignee, t.priority, t.status, t.due_at, t.result,
-	t.created_at, t.created_by, t.updated_at, t.done_at, t.done_by, i.number, i.title`
+	t.created_at, t.created_by, t.updated_at, t.done_at, t.done_by, t.wf_step, t.rec_key, i.number, i.title`
 
 func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 	defer rows.Close()
@@ -533,7 +533,7 @@ func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 		var t model.Task
 		var due, cr, up, done int64
 		if err := rows.Scan(&t.ID, &t.IncidentID, &t.Title, &t.Details, &t.Function, &t.Assignee, &t.Priority, &t.Status, &due, &t.Result,
-			&cr, &t.CreatedBy, &up, &done, &t.DoneBy, &t.IncidentNumber, &t.IncidentTitle); err != nil {
+			&cr, &t.CreatedBy, &up, &done, &t.DoneBy, &t.WFStep, &t.RecKey, &t.IncidentNumber, &t.IncidentTitle); err != nil {
 			return nil, err
 		}
 		t.DueAt, t.CreatedAt, t.UpdatedAt, t.DoneAt = fromTS(due), fromTS(cr), fromTS(up), fromTS(done)
@@ -588,8 +588,8 @@ func (s *Store) CreateTask(ctx context.Context, t *model.Task) error {
 	if t.Status == "" {
 		t.Status = "offen"
 	}
-	res, err := s.db.ExecContext(ctx, `INSERT INTO tasks (incident_id, title, details, function, assignee, priority, status, due_at, created_at, created_by, updated_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`, t.IncidentID, t.Title, t.Details, t.Function, t.Assignee, t.Priority, t.Status, ts(t.DueAt), ts(now), t.CreatedBy, ts(now))
+	res, err := s.db.ExecContext(ctx, `INSERT INTO tasks (incident_id, title, details, function, assignee, priority, status, due_at, created_at, created_by, updated_at, wf_step, rec_key)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`, t.IncidentID, t.Title, t.Details, t.Function, t.Assignee, t.Priority, t.Status, ts(t.DueAt), ts(now), t.CreatedBy, ts(now), t.WFStep, t.RecKey)
 	if err != nil {
 		return err
 	}
@@ -600,8 +600,8 @@ func (s *Store) CreateTask(ctx context.Context, t *model.Task) error {
 
 func (s *Store) UpdateTask(ctx context.Context, t *model.Task) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE tasks SET title=?, details=?, function=?, assignee=?, priority=?, status=?, due_at=?, result=?,
-		updated_at=?, done_at=?, done_by=? WHERE id=?`, t.Title, t.Details, t.Function, t.Assignee, t.Priority, t.Status, ts(t.DueAt), t.Result,
-		ts(time.Now()), ts(t.DoneAt), t.DoneBy, t.ID)
+		updated_at=?, done_at=?, done_by=?, wf_step=? WHERE id=?`, t.Title, t.Details, t.Function, t.Assignee, t.Priority, t.Status, ts(t.DueAt), t.Result,
+		ts(time.Now()), ts(t.DoneAt), t.DoneBy, t.WFStep, t.ID)
 	s.Touch(ctx, t.IncidentID)
 	return err
 }

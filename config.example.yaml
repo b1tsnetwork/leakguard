@@ -201,7 +201,15 @@ incident:
   #   - {key: insider,            label: "Insider / Fehlverhalten"}
   #   - {key: device_loss,        label: "Verlust / Diebstahl von Geräten"}
   #   - {key: supply_chain,       label: "Dienstleister / Lieferkette"}
+  #   - {key: infra_outage,       label: "IT-Notfall: Ausfall Infrastruktur"}   # für die IT-Notfall-Abläufe der Bibliothek
+  #   - {key: web_compromise,     label: "Kompromittierte Webseite / Bürgerportal"}
   #   - {key: other,              label: "Sonstiges"}
+
+  # HINWEIS WORKFLOWS: Stabspositionen, Abläufe, Begründungen, Abhängigkeiten und Bedingungen werden
+  # in der Oberfläche unter „Workflows“ gestaltet und versioniert in der Datenbank gespeichert
+  # (Export/Import als YAML). Die folgenden "functions" dienen nur als Startbestand der Stabspositionen
+  # (neue Schlüssel werden beim Start ergänzt, bestehende nie überschrieben). "checklists" und
+  # "playbooks" gelten nur noch für Vorfälle, die ausdrücklich OHNE Workflow angelegt werden.
 
   # Stabsfunktionen (angelehnt an BSI-Standard 200-4 / FwDV 100). Standard zusätzlich: isb, bcm,
   # staff_council (Personalrat), it_provider, process_owner (Fachverfahren), vs (Geheimschutz).

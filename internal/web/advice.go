@@ -8,10 +8,16 @@ import (
 
 	"leakguard/internal/advisor"
 	"leakguard/internal/model"
+	"leakguard/internal/workflow"
 )
 
 // advise berechnet die Empfehlungen für einen Vorfall aus dem vollständigen Zustand.
 func (s *Server) advise(r *http.Request, in *model.Incident) advisor.Result {
+	p, _ := s.planFor(r, in)
+	return s.adviseWith(r, in, p)
+}
+
+func (s *Server) adviseWith(r *http.Request, in *model.Incident, plan *workflow.Plan) advisor.Result {
 	ctx := r.Context()
 	members, _ := s.store.Members(ctx, in.ID)
 	tasks, _ := s.store.Tasks(ctx, in.ID)
@@ -22,7 +28,8 @@ func (s *Server) advise(r *http.Request, in *model.Incident) advisor.Result {
 	sitreps, _ := s.store.Sitreps(ctx, in.ID)
 	journal, _ := s.store.Journal(ctx, in.ID, "", true)
 	return advisor.Advise(advisor.Input{In: in, Members: members, Tasks: tasks, Comms: comms, Assets: assets, IOCs: iocs,
-		Obligations: obl, Sitreps: sitreps, Journal: journal, Dismissed: s.store.DismissedRecs(ctx, in.ID), Cfg: &s.cfg.Incident})
+		Obligations: obl, Sitreps: sitreps, Journal: journal, Dismissed: s.store.DismissedRecs(ctx, in.ID), Cfg: &s.cfg.Incident,
+		Plan: plan, PosLabel: func(k string) string { return s.position(k).Label }})
 }
 
 // handleRec übernimmt oder verwirft eine Empfehlung. Die Empfehlung wird serverseitig neu berechnet,
@@ -73,7 +80,10 @@ func (s *Server) handleRec(w http.ResponseWriter, r *http.Request) {
 	switch a.Kind {
 	case "task":
 		t := &model.Task{IncidentID: in.ID, Title: a.Title, Details: strings.TrimSpace(a.Details + "\n" + rec.Why + " (" + rec.Ref + ")"),
-			Function: a.Function, Priority: oneOf(a.Priority, model.Priorities, "mittel"), CreatedBy: se.Username}
+			Function: a.Function, Priority: oneOf(a.Priority, model.Priorities, "mittel"), CreatedBy: se.Username, WFStep: a.Step, RecKey: rec.Key}
+		if a.Step != "" {
+			t.Details = a.Details // Begründung zeigt die Akte direkt aus dem Workflow
+		}
 		if a.DueHours > 0 {
 			t.DueAt = time.Now().Add(time.Duration(a.DueHours) * time.Hour)
 		}
@@ -100,10 +110,34 @@ func (s *Server) handleRec(w http.ResponseWriter, r *http.Request) {
 	case "regulation":
 		s.activateRegulation(r, in, a.Regulation)
 	case "phase":
+		if g := s.phaseGate(r, in, a.Phase); g.Open() {
+			s.gateRedirect(w, r, in, a.Phase)
+			return
+		}
 		if err := s.setPhase(r, in, a.Phase, "Empfehlung: "+rec.Why); err != nil {
 			s.fail(w, r, 500, err.Error())
 			return
 		}
+		s.wfSync(r, in)
+	case "member":
+		names, _ := s.names(r)
+		d := names[strings.ToLower(a.Username)]
+		if d == "" {
+			d = a.Username
+		}
+		pos := s.position(a.Function)
+		m := model.Member{IncidentID: in.ID, Username: a.Username, Display: d, Function: a.Function,
+			Role: oneOf(or(pos.Role, model.IRoleMember), model.IncidentRoles, model.IRoleMember), AddedBy: se.Username}
+		if m.Role == model.IRoleLead {
+			m.Role = model.IRoleMember
+		}
+		if err := s.store.UpsertMember(r.Context(), m); err != nil {
+			s.fail(w, r, 500, err.Error())
+			return
+		}
+		txt := fmt.Sprintf("Stab: %s als %s aufgenommen (Workflow). Begründung: %s", d, pos.Label, rec.Why)
+		s.audit(r, "member_upsert", "member", 0, in.ID, a.Username+": "+txt)
+		s.jlog(r, in.ID, "member", txt, true)
 	case "crisis":
 		in.CrisisMode = true
 		if in.NextBriefing.IsZero() {

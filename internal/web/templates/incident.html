@@ -281,12 +281,98 @@
 {{end}}
 
 {{/* =================== AUFGABEN =================== */}}
+{{/* =================== WORKFLOW =================== */}}
+{{if eq .Tab "workflow"}}{{with .WF}}
+{{if .Version}}
+<section class="card wf-head" data-live-region="wfhead">
+  <div class="cardhead">
+    <h2>Workflow „{{.Version.Def.Name}}“ <span class="tag">Version {{.Version.Version}}</span></h2>
+    {{if has $.Session "leitung"}}<a class="small" href="/workflows/{{.Version.WorkflowID}}?v={{.Version.ID}}">im Designer ansehen →</a>{{end}}
+  </div>
+  {{if .Version.Def.Description}}<p class="muted small">{{.Version.Def.Description}}</p>{{end}}
+  <div class="wf-progress">
+    {{range .Progress}}
+    <div class="wf-ph {{if .Current}}cur{{else if .Reached}}past{{end}}" title="{{.Phase.Label}}: {{.Done}} von {{.Total}} Schritten erledigt{{if .Mandatory}}, Pflicht {{.MandDone}}/{{.Mandatory}}{{end}}">
+      <span class="wf-phl">{{.Phase.Label}}</span>
+      <span class="wf-bar"><i data-pct="{{pct .Done .Total}}"></i></span>
+      <small>{{.Done}}/{{.Total}}{{if .Mandatory}} · Pflicht {{.MandDone}}/{{.Mandatory}}{{end}}</small>
+    </div>
+    {{end}}
+  </div>
+  {{with .Upgrade}}
+  <div class="wf-upgrade">
+    <b>Neuere Version verfügbar:</b> Version {{.Version}} vom {{dt .PublishedAt}}{{if .Note}} – {{.Note}}{{end}}.
+    {{if $d.CanLead}}
+    <form method="post" action="/incidents/{{$in.ID}}/workflow" class="inline">
+      <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="version" value="{{.ID}}">
+      <input type="hidden" name="reason" value="Aktualisierung auf die neueste Workflow-Version">
+      <button class="btn small primary" data-confirm="Auf Version {{.Version}} wechseln? Bereits angelegte Aufgaben bleiben erhalten; neue Schritte werden ergänzt.">Auf Version {{.Version}} aktualisieren</button>
+    </form>{{end}}
+  </div>
+  {{end}}
+</section>
+
+{{if .GateTo}}
+<section class="card gatebox" id="gate">
+  <h2>Phasenwechsel nach „{{lab "phase" .GateTo}}“: noch offen laut Workflow</h2>
+  <p class="small">Pflichtpunkte sichern, dass nichts Wesentliches übersprungen wird. Erledigen Sie die Punkte – oder begründen Sie die Abweichung; die Begründung wird als Entscheidung im Einsatztagebuch dokumentiert.</p>
+  <ul class="gatelist">
+    {{range .Gate.Steps}}<li><b>{{.Step.Title}}</b> <span class="tag">{{stateLabel .State}}</span> <small class="muted">· {{fn .Step.Position}} · Phase {{lab "phase" .Step.Phase}}</small>
+      {{if .Step.Why}}<div class="small muted">Warum: {{.Step.Why}}</div>{{end}}</li>{{end}}
+    {{range .Gate.Staff}}<li><b>Stabsstelle {{.Position.Label}}</b> <span class="tag bad">nicht besetzt</span>{{if .Suggest}} <small>– vorgesehen: {{join .Suggest ", "}}</small>{{end}}
+      {{if .Req.Why}}<div class="small muted">Warum: {{.Req.Why}}</div>{{end}}</li>{{end}}
+  </ul>
+  {{if $d.CanLead}}
+  <form method="post" action="/incidents/{{$in.ID}}/phase" class="gateform">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="phase" value="{{.GateTo}}">
+    <label>Abweichung begründen (mind. 10 Zeichen)<textarea name="override" rows="2" minlength="10" required placeholder="z. B. Forensik durch Dienstleister beauftragt, Ergebnis folgt; Eindämmung darf nicht warten."></textarea></label>
+    <button class="btn danger">Trotzdem nach „{{lab "phase" .GateTo}}“ wechseln</button>
+    <a class="btn ghost" href="/incidents/{{$in.ID}}?tab=workflow">Abbrechen</a>
+  </form>
+  {{end}}
+</section>
+{{end}}
+
+<section class="card wf-run">
+  <div id="wfd-app" class="wfd run"><p class="muted">Ablauf wird geladen …</p></div>
+  <script type="application/json" id="wf-data">{{.JSON}}</script>
+  <script src="/static/designer.js" defer></script>
+</section>
+{{else}}
+<section class="card">
+  <h2>Kein Workflow zugeordnet</h2>
+  <p class="muted">Ein Workflow legt fest, welche Schritte in welcher Phase notwendig sind (mit Begründung), wer zuständig ist und welche Stabsstellen dazugehören.
+  {{with .Suggest}}Für diesen Vorfall passt: <b>{{.Def.Name}}</b>.{{end}}</p>
+</section>
+{{end}}
+{{if $d.CanLead}}
+<details class="card formcard">
+  <summary><b>{{if .Version}}Anderen Workflow zuordnen{{else}}Workflow zuordnen{{end}}</b></summary>
+  <form method="post" action="/incidents/{{$in.ID}}/workflow">
+    <input type="hidden" name="csrf" value="{{$.CSRF}}">
+    <label>Workflow<select name="version">
+      {{$cur := .Version}}{{$sug := .Suggest}}
+      {{range .Choices}}<option value="{{.ID}}" {{if $cur}}{{if eq .ID $cur.ID}}selected{{end}}{{else if $sug}}{{if eq .ID $sug.ID}}selected{{end}}{{end}}>{{.Def.Name}} (v{{.Version}})</option>{{end}}
+      <option value="0">– ohne Workflow –</option>
+    </select></label>
+    <label>Begründung<input name="reason" maxlength="1000" placeholder="wird im Einsatztagebuch dokumentiert"></label>
+    <button class="btn primary">Zuordnen</button>
+    <p class="small muted">Bereits vorhandene Aufgaben mit gleichem Titel werden übernommen statt verdoppelt. Schritte bereits erreichter Phasen werden sofort angelegt.</p>
+  </form>
+</details>
+{{end}}
+{{end}}{{end}}
+
+{{/* =================== AUFGABEN =================== */}}
 {{if eq .Tab "aufgaben"}}
 {{if .CanEdit}}
 <details class="card formcard" id="task-form" {{if not .Tasks}}open{{end}}>
   <summary><b>+ Aufgabe / Auftrag erteilen</b></summary>
   <form method="post" action="/incidents/{{$in.ID}}/tasks" class="taskform">
     <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="return" value="aufgaben">
+    <label class="span3">Aus Vorlage übernehmen (optional)
+      <select data-task-template><option value="">– eigene Aufgabe –</option></select>
+      <small class="muted">Füllt Titel, Zuständigkeit, Priorität, Frist und Begründung aus der Workflow-Bibliothek oder einem eigenen Workflow vor. Alles bleibt änderbar.</small></label>
     <label class="span2">Aufgabe <span class="req">*</span><input name="title" required maxlength="300"></label>
     <label>Stabsfunktion<select name="function"><option value="">–</option>{{range fns}}<option value="{{.Key}}">{{.Label}}</option>{{end}}</select></label>
     <label>Zuständig<input name="assignee" list="userlist" placeholder="Benutzername"></label>
@@ -303,10 +389,17 @@
   <table class="tasks">
     <thead><tr><th>#</th><th>Aufgabe</th><th>Funktion / Zuständig</th><th>Prio</th><th>Frist</th><th>Status</th></tr></thead>
     <tbody>
-    {{range .Tasks}}
-    <tr class="{{if not .Open}}done{{end}} {{if .Overdue}}over{{end}}">
+    {{range .Tasks}}{{$ws := $d.Step .ID}}
+    <tr id="task-{{.ID}}" class="{{if not .Open}}done{{end}} {{if .Overdue}}over{{end}} {{if $ws}}{{if $ws.WaitingFor}}locked{{end}}{{end}}">
       <td>{{.ID}}</td>
-      <td><b>{{.Title}}</b>{{if .Details}}<div class="small muted pre">{{.Details}}</div>{{end}}
+      <td><b>{{.Title}}</b>
+        {{with $ws}}<div class="wf-taskinfo">
+          <span class="tag" title="Schritt aus dem Workflow">{{kindLabel .Step.Kind}}</span>
+          {{if .Step.Mandatory}}<span class="tag warn" title="Muss vor dem Wechsel in die nächste Phase erledigt sein">Pflicht · Phasen-Gate</span>{{end}}
+          {{if .WaitingFor}}<span class="tag bad">🔒 wartet auf: {{range $i, $w := .WaitingFor}}{{if $i}}; {{end}}{{$w.Title}}{{end}}</span>{{end}}
+          {{if .Step.Why}}<details class="rec-more"><summary>Warum?</summary><p class="rec-why">{{.Step.Why}}</p>{{if .Step.Ref}}<div class="rec-ref">Grundlage: {{.Step.Ref}}</div>{{end}}</details>{{end}}
+        </div>{{end}}
+        {{if .Details}}<div class="small muted pre">{{.Details}}</div>{{end}}
         {{if .Result}}<div class="small result">↳ {{.Result}}</div>{{end}}
         <div class="small muted">erteilt {{dt .CreatedAt}} von {{name $d.Names .CreatedBy}}{{if not .DoneAt.IsZero}} · erledigt {{dt .DoneAt}} von {{name $d.Names .DoneBy}}{{end}}</div>
         {{if $d.CanEdit}}
@@ -534,6 +627,32 @@
 
 {{/* =================== STAB =================== */}}
 {{if eq .Tab "stab"}}
+{{with .WF}}{{if .Plan}}
+<section class="card staffplan" data-live-region="staffplan">
+  <div class="cardhead"><h2>Stab laut Workflow – Soll / Ist</h2><a class="small" href="?tab=workflow">Workflow „{{.Version.Def.Name}}“ →</a></div>
+  <table class="tasks">
+    <thead><tr><th>Stabsposition</th><th>Bedarf</th><th>Besetzung</th><th>Warum gehört die Position in den Stab?</th></tr></thead>
+    <tbody>
+    {{range .Plan.Staff}}{{if .Applicable}}
+    <tr class="{{if .Missing}}{{if eq .Req.Need "pflicht"}}over{{end}}{{end}}">
+      <td><span class="poschip" data-pc="{{or .Position.Color "#94a3b8"}}">{{or .Position.Short "•"}}</span> <b>{{.Position.Label}}</b></td>
+      <td><span class="wb-chip need-{{.Req.Need}}" data-pc="{{or .Position.Color "#94a3b8"}}">{{needLabel .Req.Need}}</span><br><small class="muted">ab {{lab "phase" .Req.Phase}}{{if not .Active}} (noch nicht erreicht){{end}}</small></td>
+      <td>{{if .Filled}}{{range .Filled}}<div>✓ {{.Display}}</div>{{end}}
+        {{else}}<span class="{{if .Active}}bad{{else}}muted{{end}}">{{if .Active}}✖ nicht besetzt{{else}}noch nicht nötig{{end}}</span>
+          {{if .Suggest}}<div class="small">Vorgesehen: {{join .Suggest ", "}}</div>
+            {{if $d.CanLead}}<form method="post" action="/incidents/{{$in.ID}}/members" class="inline">
+              <input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="username" value="{{index .Suggest 0}}">
+              <input type="hidden" name="function" value="{{.Req.Position}}"><input type="hidden" name="role" value="{{or .Req.Role .Position.Role "mitglied"}}">
+              <button class="btn small primary">{{index .Suggest 0}} aufnehmen</button></form>{{end}}
+          {{end}}{{end}}</td>
+      <td class="small">{{or .Req.Why .Position.Why}}{{if not .Req.When.Empty}}<div class="muted">Bedingung: {{.Condition}}</div>{{end}}{{with or .Req.Ref .Position.Ref}}<div class="muted">Grundlage: {{.}}</div>{{end}}</td>
+    </tr>
+    {{end}}{{end}}
+    </tbody>
+  </table>
+  <p class="small muted">Die Begründungen und die vorgesehene Besetzung werden unter <a href="/workflows/positions">Stabspositionen</a> und im Workflow gepflegt. Nicht aufgeführte Positionen sind für diesen Vorfall laut Bedingungen nicht vorgesehen.</p>
+</section>
+{{end}}{{end}}
 <div class="grid2 wide-left">
 <section class="card" data-live-region="members">
   <h2>Stab / Beteiligte</h2>
@@ -541,7 +660,7 @@
     <thead><tr><th>Person</th><th>Funktion</th><th>Rolle im Vorfall</th><th>seit</th><th></th></tr></thead>
     <tbody>
     {{range .Members}}
-    <tr><td><b>{{.Display}}</b><br><small class="muted">{{.Username}}</small></td><td>{{fn .Function}}</td><td>{{lab "irole" .Role}}</td>
+    <tr><td><b>{{.Display}}</b><br><small class="muted">{{.Username}}</small></td><td title="{{(pos .Function).Why}}">{{fn .Function}}</td><td>{{lab "irole" .Role}}</td>
       <td class="small">{{dt .AddedAt}}<br>{{name $d.Names .AddedBy}}</td>
       <td>{{if and $d.CanLead (ne (lower .Username) (lower $in.Lead))}}<form method="post" action="/incidents/{{$in.ID}}/members/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="username" value="{{.Username}}"><button class="linkbtn" data-confirm="{{.Display}} aus dem Stab entfernen?">entfernen</button></form>{{end}}</td></tr>
     {{end}}
@@ -620,7 +739,7 @@
   {{if $r.Ref}}<div class="rec-ref">Grundlage: {{$r.Ref}}</div>{{end}}
   <div class="rec-actions">
     {{if eq $r.Action.Kind "link"}}
-      <a class="btn small" href="/incidents/{{.ID}}?tab={{$r.Action.Tab}}">{{$r.Action.Label}}</a>
+      <a class="btn small" href="{{recHref .ID $r.Action}}">{{$r.Action.Label}}</a>
     {{else if and .Edit (or .Lead (not $r.Action.NeedsLead))}}
       <form method="post" action="/incidents/{{.ID}}/recs" class="inline">
         <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="key" value="{{$r.Key}}"><input type="hidden" name="return" value="{{.Ret}}">

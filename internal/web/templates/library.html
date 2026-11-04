@@ -1,0 +1,52 @@
+{{define "content"}}
+{{with .Data}}
+<div class="pagehead">
+  <div>
+    <a class="back" href="/workflows">← Workflows</a>
+    <h1>Workflow-Bibliothek</h1>
+    <p class="muted">{{.Count}} eingebaute, gepflegte Abläufe ({{.Small}} davon für kleinere Vorfälle mit begrenztem Stab) für IT-Sicherheitsvorfälle und IT-Notfälle im öffentlichen Dienst – immer vorinstalliert. Jeder Schritt mit Begründung, Grundlage, Zuständigkeit und den passenden Stabsstellen. Vorlagen selbst bleiben unverändert; Sie arbeiten mit der installierten Fassung oder einer Kopie.</p>
+  </div>
+</div>
+<form class="filters" method="get" action="/bibliothek">
+  <input type="search" name="q" value="{{.Q}}" placeholder="Abläufe suchen, z. B. Fehlversand, USB, Zertifikat …">
+  <select name="size" data-autosubmit>
+    <option value="" {{if eq .Size ""}}selected{{end}}>Alle Abläufe</option>
+    <option value="gross" {{if eq .Size "gross"}}selected{{end}}>Größere Lagen (Stab)</option>
+    <option value="klein" {{if eq .Size "klein"}}selected{{end}}>Kleinere Vorfälle (begrenzter Stab)</option>
+  </select>
+  <button class="btn">Filtern</button>
+</form>
+<p class="small muted">Kleinere Vorfälle laufen mit schlankem Grundablauf (Erfassen, Meldepflichten prüfen, Ausweitung prüfen, Kurzabschluss) und kleinem Stab: Leitung und ISB, DSB nur bei personenbezogenen Daten. Ist die Schwere angegeben (z. B. „automatisch bei P3/P4“), wird der kleine Ablauf bei geringer Schwere automatisch gewählt, bei P1/P2 der große. Weitet sich ein Fall aus, wechselt die Leitung im Vorfall einfach den Workflow.</p>
+{{range .Groups}}
+<h2 class="posgroup">{{.Name}}</h2>
+<div class="wfl">
+{{range .Entries}}{{$t := .T}}
+<article class="card wfl-card" data-pc="{{or $t.Def.Color "#1f5fbf"}}">
+  <header>
+    <h2><a href="/bibliothek/{{$t.Key}}">{{$t.Name}}</a></h2>
+    <div class="badges">
+      {{if $t.Small}}<span class="tag small-tag" title="Schlanker Ablauf, kleiner Stab">kleiner Stab</span>{{end}}
+      {{if $t.Def.Match.ManualOnly}}<span class="tag" title="Wird nicht automatisch gewählt – im Vorfall von Hand zuordnen">manuell wählbar</span>{{else}}<span class="tag ok" title="Wird für passende Vorfälle automatisch gewählt">automatisch{{with $t.Def.Match.When.Rules}} bei {{range $i, $r := .}}{{if eq $r.Field "severity"}}{{join $r.Values "/"}}{{end}}{{end}}{{end}}</span>{{end}}
+      {{if not $t.Available}}<span class="tag warn" title="Keine passende Kategorie konfiguriert">Kategorie fehlt</span>{{end}}
+      {{if .Outdated}}<span class="tag warn">neue Fassung der Vorlage</span>{{end}}
+    </div>
+  </header>
+  <p class="small muted">{{$t.Description}}</p>
+  <p class="small"><b>{{.Steps}}</b> Schritte ({{.Mandatory}} Pflicht) · <b>{{.Staff}}</b> Stabsanforderungen{{if $t.Def.Match.Categories}} · für {{range $i, $k := $t.Def.Match.Categories}}{{if $i}}, {{end}}{{cat $k}}{{end}}{{end}}</p>
+  <div class="wfl-staff">{{range $t.Def.Staff}}{{if ne .Need "optional"}}{{$p := pos .Position}}<span class="wb-chip need-{{.Need}}" data-pc="{{or $p.Color "#94a3b8"}}" title="{{$p.Label}} – {{needLabel .Need}} ab {{lab "phase" .Phase}}">{{or $p.Short $p.Label}}</span>{{end}}{{end}}</div>
+  <footer>
+    <a class="btn small" href="/bibliothek/{{$t.Key}}">Ansehen</a>
+    {{with .Installed}}<a class="btn small" href="/workflows/{{.ID}}">Installierte Fassung{{if .Archived}} (archiviert){{end}}</a>{{end}}
+    {{if and .Outdated $.Data.CanEdit}}{{with .Installed}}<a class="btn small" href="/workflows/{{.ID}}?port=tpl:{{$t.Key}}" title="Neue Schritte der Vorlage in die installierte Fassung übernehmen">Neuerungen übernehmen</a>{{end}}{{end}}
+    {{if $.Data.CanEdit}}
+    <form method="post" action="/bibliothek/{{$t.Key}}/copy" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+      <button class="btn small primary" title="Als neuen, eigenen Workflow anlegen und anpassen">Kopieren &amp; anpassen</button></form>
+    {{end}}
+  </footer>
+</article>
+{{end}}
+</div>
+{{else}}<p class="muted">Keine Abläufe gefunden.</p>
+{{end}}
+{{end}}
+{{end}}
